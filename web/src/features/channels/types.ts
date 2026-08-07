@@ -38,6 +38,7 @@ export const channelSchema = z.object({
   id: z.number(),
   type: z.number(),
   key: z.string(),
+  key_expires_at: z.number().optional(), // unix 秒；0 = 永不过期
   openai_organization: z.string().nullish(),
   test_model: z.string().nullish(),
   status: z.number(), // 1: enabled, 0: manual disabled, 2: auto disabled

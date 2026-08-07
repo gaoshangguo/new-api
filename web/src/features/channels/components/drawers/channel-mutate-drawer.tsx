@@ -55,6 +55,7 @@ import { type SubmitErrorHandler, useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { DateTimePicker } from '@/components/datetime-picker'
 import {
   sideDrawerContentClassName,
   sideDrawerFooterClassName,
@@ -3075,6 +3076,29 @@ export function ChannelMutateDrawer({
                                     </FormItem>
                                   )
                                 }}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name='key_expires_at'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>{t('Key Expires At')}</FormLabel>
+                                    <FormControl>
+                                      <DateTimePicker
+                                        value={field.value ?? undefined}
+                                        onChange={field.onChange}
+                                        placeholder={t('Never expires')}
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'When set, the system warns before the channel key expires.'
+                                      )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
                               />
 
                               {currentType === 57 && (
