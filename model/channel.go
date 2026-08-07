@@ -91,11 +91,14 @@ func (channel *Channel) encryptKeyForPersist(tx *gorm.DB) error {
 	// Select/Updates 限定列时不包含 key 的更新不得加密内存对象：
 	// GORM 钩子接收者是 Model() 传入的对象，可能是共享缓存指针（如
 	// CacheGetChannel 的返回值），原地加密会污染内存缓存，导致 relay
-	// 路径把密文当明文发往上游。
-	if len(tx.Statement.Selects) > 0 && !containsString(tx.Statement.Selects, "key") {
+	// 路径把密文当明文发往上游。Save() 会以 Selects=["*"] 表示全字段
+	// 更新（key 包含在内），此时应正常加密。
+	if len(tx.Statement.Selects) > 0 &&
+		!lo.Contains(tx.Statement.Selects, "*") &&
+		!lo.Contains(tx.Statement.Selects, "key") {
 		return nil
 	}
-	if len(tx.Statement.Omits) > 0 && containsString(tx.Statement.Omits, "key") {
+	if len(tx.Statement.Omits) > 0 && lo.Contains(tx.Statement.Omits, "key") {
 		return nil
 	}
 	encrypted, err := common.EncryptChannelKey(channel.Key)
@@ -104,15 +107,6 @@ func (channel *Channel) encryptKeyForPersist(tx *gorm.DB) error {
 	}
 	channel.Key = encrypted
 	return nil
-}
-
-func containsString(list []string, target string) bool {
-	for _, item := range list {
-		if item == target {
-			return true
-		}
-	}
-	return false
 }
 
 type ChannelInfo struct {
@@ -1198,4 +1192,33 @@ func CountChannelsGroupByType() (map[int64]int64, error) {
 		counts[r.Type] = r.Count
 	}
 	return counts, nil
+}
+
+// MigrateLegacyChannelKeys encrypts any channel keys still stored in
+// plaintext. Idempotent and batched so large deployments do not block startup.
+func MigrateLegacyChannelKeys() (int64, error) {
+	const batchSize = 100
+	var migrated int64
+	offset := 0
+	for {
+		var channels []*Channel
+		err := DB.Where("key <> '' AND key NOT LIKE ?", common.ChannelKeyCipherPrefix+"%").
+			Limit(batchSize).Offset(offset).Find(&channels).Error
+		if err != nil {
+			return migrated, err
+		}
+		if len(channels) == 0 {
+			return migrated, nil
+		}
+		for _, channel := range channels {
+			if err := channel.Save(); err != nil {
+				return migrated, fmt.Errorf("migrate channel %d key: %w", channel.Id, err)
+			}
+			migrated++
+		}
+		if len(channels) < batchSize {
+			return migrated, nil
+		}
+		offset += batchSize
+	}
 }

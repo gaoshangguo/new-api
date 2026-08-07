@@ -151,6 +151,21 @@ func main() {
 	controller.RegisterScheduledSystemTasks()
 	service.StartSystemTaskRunner()
 
+	// 存量渠道密钥加密迁移：仅 master 启动时执行一次（幂等）
+	go func() {
+		if !common.IsMasterNode {
+			return
+		}
+		migrated, err := model.MigrateLegacyChannelKeys()
+		if err != nil {
+			common.SysError(fmt.Sprintf("channel key migration failed: %v", err))
+			return
+		}
+		if migrated > 0 {
+			common.SysLog(fmt.Sprintf("migrated %d legacy channel keys to encrypted storage", migrated))
+		}
+	}()
+
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
 		common.SysLog("batch update enabled with interval " + strconv.Itoa(common.BatchUpdateInterval) + "s")

@@ -97,3 +97,29 @@ func TestKeyExpiresAtPersisted(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, expiresAt, loaded.KeyExpiresAt)
 }
+
+func TestMigrateLegacyChannelKeys(t *testing.T) {
+	// 清场：迁移掉其他测试可能遗留的明文数据，保证断言确定性
+	_, _ = MigrateLegacyChannelKeys()
+
+	plain1 := createEncryptionTestChannel(t, "sk-legacy-1")
+	plain2 := createEncryptionTestChannel(t, "sk-legacy-2")
+	// 直写库模拟历史明文（绕过钩子）
+	require.NoError(t, DB.Table("channels").Where("id = ?", plain1.Id).Update("key", "sk-legacy-1").Error)
+	require.NoError(t, DB.Table("channels").Where("id = ?", plain2.Id).Update("key", "sk-legacy-2").Error)
+
+	migrated, err := MigrateLegacyChannelKeys()
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), migrated)
+
+	// 幂等：再次执行无新增
+	migrated, err = MigrateLegacyChannelKeys()
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), migrated)
+
+	// 迁移后读取仍为明文
+	loaded1, err := GetChannelById(plain1.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, "sk-legacy-1", loaded1.Key)
+	assert.True(t, common.IsEncryptedChannelKey(rawStoredChannelKey(t, plain1.Id)))
+}
