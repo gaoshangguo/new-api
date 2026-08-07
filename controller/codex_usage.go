@@ -131,8 +131,13 @@ func fetchCodexChannelWhamData(
 
 			encoded, encErr := common.Marshal(oauthKey)
 			if encErr == nil {
-				_ = model.DB.Model(&model.Channel{}).Where("id = ?", ch.Id).Update("key", string(encoded)).Error
-				model.InitChannelCache()
+				encryptedKey, keyErr := common.EncryptChannelKey(string(encoded))
+				if keyErr != nil {
+					common.SysError(fmt.Sprintf("codex usage channel %d key encrypt failed: %v", ch.Id, keyErr))
+				} else {
+					_ = model.DB.Model(&model.Channel{}).Where("id = ?", ch.Id).Update("key", encryptedKey).Error
+					model.InitChannelCache()
+				}
 			}
 
 			ctx2, cancel2 := context.WithTimeout(c.Request.Context(), 15*time.Second)

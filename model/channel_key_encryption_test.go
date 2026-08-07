@@ -123,3 +123,17 @@ func TestMigrateLegacyChannelKeys(t *testing.T) {
 	assert.Equal(t, "sk-legacy-1", loaded1.Key)
 	assert.True(t, common.IsEncryptedChannelKey(rawStoredChannelKey(t, plain1.Id)))
 }
+
+func TestMapUpdatesDoNotEncryptSharedInMemoryKey(t *testing.T) {
+	channel := createEncryptionTestChannel(t, "sk-map-guard")
+	loaded, err := GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	require.Equal(t, "sk-map-guard", loaded.Key)
+
+	// 单列 Update（Dest 为 map）不得修改内存对象的 Key
+	require.NoError(t, DB.Model(loaded).Update("channel_info", `{"is_multi_key":false}`).Error)
+	assert.Equal(t, "sk-map-guard", loaded.Key)
+
+	// DB 中 key 仍为密文
+	assert.True(t, common.IsEncryptedChannelKey(rawStoredChannelKey(t, channel.Id)))
+}

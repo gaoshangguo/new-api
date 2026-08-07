@@ -88,17 +88,22 @@ func (channel *Channel) encryptKeyForPersist(tx *gorm.DB) error {
 	if channel.Key == "" || common.IsEncryptedChannelKey(channel.Key) {
 		return nil
 	}
-	// Select/Updates 限定列时不包含 key 的更新不得加密内存对象：
-	// GORM 钩子接收者是 Model() 传入的对象，可能是共享缓存指针（如
-	// CacheGetChannel 的返回值），原地加密会污染内存缓存，导致 relay
-	// 路径把密文当明文发往上游。Save() 会以 Selects=["*"] 表示全字段
-	// 更新（key 包含在内），此时应正常加密。
-	if len(tx.Statement.Selects) > 0 &&
-		!lo.Contains(tx.Statement.Selects, "*") &&
-		!lo.Contains(tx.Statement.Selects, "key") {
-		return nil
+	// Select 限定列时不包含 key 的更新不得加密内存对象：GORM 钩子接收者
+	// 可能是共享缓存指针（CacheGetChannel 返回值），原地加密会污染缓存，
+	// 导致 relay 路径把密文当明文发往上游。
+	if len(tx.Statement.Selects) > 0 {
+		selectsAll := lo.Contains(tx.Statement.Selects, "*") // Save() 置 ["*"]
+		selectsKey := lo.Contains(tx.Statement.Selects, "key")
+		if !selectsAll && !selectsKey {
+			return nil
+		}
 	}
 	if len(tx.Statement.Omits) > 0 && lo.Contains(tx.Statement.Omits, "key") {
+		return nil
+	}
+	// map 指定列更新不触发钩子写入转换（GORM 直写 Dest 值），加密接收者
+	// 对象既无助于落库也无益于内存，一律跳过；此类调用须自行加密 key 值。
+	if _, ok := tx.Statement.Dest.(map[string]interface{}); ok {
 		return nil
 	}
 	encrypted, err := common.EncryptChannelKey(channel.Key)
