@@ -62,12 +62,12 @@ type Channel struct {
 
 // 密钥加密存储：写入时加密，读取时解密。历史明文（无 enc:v1: 前缀）保持兼容，
 // 并在下次写入时自动加密；解密失败视为无密钥（fail-closed），绝不静默返回错误。
-func (channel *Channel) BeforeSave(_ *gorm.DB) error {
-	return channel.encryptKeyForPersist()
+func (channel *Channel) BeforeSave(tx *gorm.DB) error {
+	return channel.encryptKeyForPersist(tx)
 }
 
-func (channel *Channel) BeforeUpdate(_ *gorm.DB) error {
-	return channel.encryptKeyForPersist()
+func (channel *Channel) BeforeUpdate(tx *gorm.DB) error {
+	return channel.encryptKeyForPersist(tx)
 }
 
 func (channel *Channel) AfterFind(_ *gorm.DB) error {
@@ -84,8 +84,18 @@ func (channel *Channel) AfterFind(_ *gorm.DB) error {
 	return nil
 }
 
-func (channel *Channel) encryptKeyForPersist() error {
+func (channel *Channel) encryptKeyForPersist(tx *gorm.DB) error {
 	if channel.Key == "" || common.IsEncryptedChannelKey(channel.Key) {
+		return nil
+	}
+	// Select/Updates 限定列时不包含 key 的更新不得加密内存对象：
+	// GORM 钩子接收者是 Model() 传入的对象，可能是共享缓存指针（如
+	// CacheGetChannel 的返回值），原地加密会污染内存缓存，导致 relay
+	// 路径把密文当明文发往上游。
+	if len(tx.Statement.Selects) > 0 && !containsString(tx.Statement.Selects, "key") {
+		return nil
+	}
+	if len(tx.Statement.Omits) > 0 && containsString(tx.Statement.Omits, "key") {
 		return nil
 	}
 	encrypted, err := common.EncryptChannelKey(channel.Key)
@@ -94,6 +104,15 @@ func (channel *Channel) encryptKeyForPersist() error {
 	}
 	channel.Key = encrypted
 	return nil
+}
+
+func containsString(list []string, target string) bool {
+	for _, item := range list {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
 
 type ChannelInfo struct {

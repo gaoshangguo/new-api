@@ -74,6 +74,21 @@ func TestMultiKeyEncryptDecryptRoundTrip(t *testing.T) {
 	assert.Equal(t, "key-2", loaded.GetKeys()[1])
 }
 
+func TestSelectLimitedUpdatesDoNotEncryptSharedInMemoryKey(t *testing.T) {
+	channel := createEncryptionTestChannel(t, "sk-select-guard")
+	// 模拟共享缓存对象：AfterFind 已解密为明文
+	loaded, err := GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	require.Equal(t, "sk-select-guard", loaded.Key)
+
+	// Select 限定更新（不含 key）不得修改内存对象的 Key
+	require.NoError(t, DB.Model(loaded).Select("balance", "balance_updated_time").Updates(Channel{Balance: 1.5, BalanceUpdatedTime: 1}).Error)
+	assert.Equal(t, "sk-select-guard", loaded.Key)
+
+	// DB 中 key 仍为密文（未被破坏）
+	assert.True(t, common.IsEncryptedChannelKey(rawStoredChannelKey(t, channel.Id)))
+}
+
 func TestKeyExpiresAtPersisted(t *testing.T) {
 	expiresAt := time.Now().Add(7 * 24 * time.Hour).Unix()
 	channel := createEncryptionTestChannel(t, "sk-expires")
