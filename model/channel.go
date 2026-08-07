@@ -24,6 +24,7 @@ type Channel struct {
 	Id                 int     `json:"id"`
 	Type               int     `json:"type" gorm:"default:0"`
 	Key                string  `json:"key" gorm:"not null"`
+	KeyExpiresAt       int64   `json:"key_expires_at" gorm:"bigint"` // 密钥到期时间（unix 秒）；0 表示永不过期
 	OpenAIOrganization *string `json:"openai_organization"`
 	TestModel          *string `json:"test_model"`
 	Status             int     `json:"status" gorm:"default:1"`
@@ -57,6 +58,42 @@ type Channel struct {
 
 	// cache info
 	Keys []string `json:"-" gorm:"-"`
+}
+
+// 密钥加密存储：写入时加密，读取时解密。历史明文（无 enc:v1: 前缀）保持兼容，
+// 并在下次写入时自动加密；解密失败视为无密钥（fail-closed），绝不静默返回错误。
+func (channel *Channel) BeforeSave(_ *gorm.DB) error {
+	return channel.encryptKeyForPersist()
+}
+
+func (channel *Channel) BeforeUpdate(_ *gorm.DB) error {
+	return channel.encryptKeyForPersist()
+}
+
+func (channel *Channel) AfterFind(_ *gorm.DB) error {
+	if channel.Key == "" || !common.IsEncryptedChannelKey(channel.Key) {
+		return nil
+	}
+	decrypted, err := common.DecryptChannelKey(channel.Key)
+	if err != nil {
+		common.SysError(fmt.Sprintf("channel %d key decrypt failed: %v", channel.Id, err))
+		channel.Key = ""
+		return nil
+	}
+	channel.Key = decrypted
+	return nil
+}
+
+func (channel *Channel) encryptKeyForPersist() error {
+	if channel.Key == "" || common.IsEncryptedChannelKey(channel.Key) {
+		return nil
+	}
+	encrypted, err := common.EncryptChannelKey(channel.Key)
+	if err != nil {
+		return err
+	}
+	channel.Key = encrypted
+	return nil
 }
 
 type ChannelInfo struct {
@@ -199,6 +236,9 @@ func (channel *Channel) GetKeys() []string {
 func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 	// If not in multi-key mode, return the original key string directly.
 	if !channel.ChannelInfo.IsMultiKey {
+		if channel.Key == "" {
+			return "", 0, types.NewError(errors.New("no key configured"), types.ErrorCodeChannelNoAvailableKey)
+		}
 		return channel.Key, 0, nil
 	}
 
