@@ -26,24 +26,47 @@ const (
 var (
 	channelKeyMasterKeyOnce sync.Once
 	channelKeyMasterKey     []byte
+	// channelKeyMasterKeyFile 是主密钥持久化文件（0600），位于数据目录
+	// （容器 WORKDIR /data 即数据卷）。测试可通过覆盖此变量指向临时路径。
+	channelKeyMasterKeyFile = "channel-key-master.key"
 )
 
 // ChannelKeyMasterKey returns the AES-256 key used to encrypt channel keys.
-// Resolution: CHANNEL_KEY_MASTER_KEY env (>=32 bytes) -> sha256(CRYPTO_SECRET)
-// -> sha256(SessionSecret). SessionSecret is persisted by InitEnv, so the key
-// survives restarts even without a dedicated env var.
+// Resolution: CHANNEL_KEY_MASTER_KEY env (>=32 bytes) -> persisted master key
+// file (generated once on first start, survives restarts) -> sha256 derivation
+// as a last-resort fallback (warns). The file-based key keeps encrypted keys
+// decryptable across restarts even when no env var is configured.
 func ChannelKeyMasterKey() []byte {
 	channelKeyMasterKeyOnce.Do(func() {
 		channelKeyMasterKey = resolveChannelKeyMasterKey(
 			os.Getenv("CHANNEL_KEY_MASTER_KEY"),
-			CryptoSecret,
-			SessionSecret,
+			loadOrCreateChannelKeyFile(),
 		)
 		if os.Getenv("CHANNEL_KEY_MASTER_KEY") == "" {
-			SysError("CHANNEL_KEY_MASTER_KEY not set; using derived key (CRYPTO_SECRET/SESSION_SECRET). Set a dedicated >=32-byte key in production.")
+			SysError("CHANNEL_KEY_MASTER_KEY not set; using persisted or derived key. Set a dedicated >=32-byte key in production.")
 		}
 	})
 	return channelKeyMasterKey
+}
+
+// loadOrCreateChannelKeyFile reads the persisted master key file, generating a
+// fresh 32-byte key (0600) when it does not exist or is too short. Generation
+// failures return nil so the caller falls back to the derived key.
+func loadOrCreateChannelKeyFile() []byte {
+	if data, err := os.ReadFile(channelKeyMasterKeyFile); err == nil && len(data) >= channelKeyMinKeyLen {
+		return data
+	}
+	key := make([]byte, channelKeyMinKeyLen)
+	if _, err := rand.Read(key); err != nil {
+		SysError(fmt.Sprintf("channel key master file generation failed: %v", err))
+		return nil
+	}
+	if err := os.WriteFile(channelKeyMasterKeyFile, key, 0o600); err != nil {
+		SysError(fmt.Sprintf("channel key master file write failed: %v", err))
+		return nil
+	}
+	SysLog(fmt.Sprintf("channel key master key persisted to %s", channelKeyMasterKeyFile))
+	return key
 }
 
 // ChannelKeyPreviousMasterKey returns an optional legacy key used only for
@@ -60,15 +83,16 @@ func ChannelKeyPreviousMasterKey() []byte {
 	return nil
 }
 
-func resolveChannelKeyMasterKey(masterKeyEnv, cryptoSecret, sessionSecret string) []byte {
+// resolveChannelKeyMasterKey prefers an explicit env key, then the persisted
+// file key, then a deterministic derivation from the existing secrets.
+func resolveChannelKeyMasterKey(masterKeyEnv string, fileKey []byte) []byte {
 	if len(masterKeyEnv) >= channelKeyMinKeyLen {
 		return []byte(masterKeyEnv)
 	}
-	source := cryptoSecret
-	if source == "" {
-		source = sessionSecret
+	if len(fileKey) >= channelKeyMinKeyLen {
+		return fileKey
 	}
-	sum := sha256.Sum256([]byte(source))
+	sum := sha256.Sum256([]byte(CryptoSecret + "\x00" + SessionSecret))
 	return sum[:]
 }
 

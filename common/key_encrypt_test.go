@@ -1,6 +1,12 @@
 package common
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -57,27 +63,56 @@ func TestDecryptTamperedCiphertextFails(t *testing.T) {
 
 func TestResolveChannelKeyMasterKeyFallbackChain(t *testing.T) {
 	// 环境变量优先
-	key := resolveChannelKeyMasterKey(strings.Repeat("k", 32), "", "")
+	key := resolveChannelKeyMasterKey(strings.Repeat("k", 32), nil)
 	require.Len(t, key, 32)
-	// cryptoSecret 派生
-	key = resolveChannelKeyMasterKey("", "crypto-secret", "session-secret")
+	// 持久化文件密钥
+	key = resolveChannelKeyMasterKey("", []byte(strings.Repeat("f", 32)))
 	require.Len(t, key, 32)
-	// sessionSecret 兜底
-	key = resolveChannelKeyMasterKey("", "", "session-secret")
+	// 派生兜底
+	key = resolveChannelKeyMasterKey("", nil)
 	require.Len(t, key, 32)
-	// 过短的环境变量忽略
-	key = resolveChannelKeyMasterKey("short", "crypto-secret", "session-secret")
+	// 过短的环境变量忽略（回退文件/派生）
+	key = resolveChannelKeyMasterKey("short", []byte(strings.Repeat("f", 32)))
 	require.Len(t, key, 32)
 }
 
-func TestDecryptWithPreviousKeyFallback(t *testing.T) {
-	t.Setenv("CHANNEL_KEY_MASTER_KEY", strings.Repeat("n", 32))
-	t.Setenv("CHANNEL_KEY_MASTER_KEY_PREVIOUS", strings.Repeat("o", 32))
-	encrypted, err := EncryptChannelKey("sk-rotation")
+func TestChannelKeyMasterKeyFilePersisted(t *testing.T) {
+	old := channelKeyMasterKeyFile
+	channelKeyMasterKeyFile = filepath.Join(t.TempDir(), "master.key")
+	defer func() { channelKeyMasterKeyFile = old }()
+
+	key1 := loadOrCreateChannelKeyFile()
+	require.Len(t, key1, 32)
+	data, err := os.ReadFile(channelKeyMasterKeyFile)
 	require.NoError(t, err)
-	// 换主密钥（不换 PREVIOUS）后仍可解密
-	t.Setenv("CHANNEL_KEY_MASTER_KEY", strings.Repeat("m", 32))
+	assert.Equal(t, key1, data)
+
+	// 幂等：再次读取返回同一密钥
+	key2 := loadOrCreateChannelKeyFile()
+	assert.Equal(t, key1, key2)
+}
+
+func TestDecryptWithPreviousKeyFallback(t *testing.T) {
+	// 白盒构造「旧密钥加密的密文」：当前主密钥解密必失败 → 走 PREVIOUS 回退
+	oldKey := strings.Repeat("o", 32)
+	block, err := aes.NewCipher([]byte(oldKey))
+	require.NoError(t, err)
+	aead, err := cipher.NewGCM(block)
+	require.NoError(t, err)
+	nonce := make([]byte, channelKeyNonceSize)
+	_, err = rand.Read(nonce)
+	require.NoError(t, err)
+	sealed := aead.Seal(nonce, nonce, []byte("sk-rotation"), nil)
+	encrypted := ChannelKeyCipherPrefix + base64.StdEncoding.EncodeToString(sealed)
+
+	t.Setenv("CHANNEL_KEY_MASTER_KEY", strings.Repeat("n", 32))
+	t.Setenv("CHANNEL_KEY_MASTER_KEY_PREVIOUS", oldKey)
 	decrypted, err := DecryptChannelKey(encrypted)
 	require.NoError(t, err)
 	assert.Equal(t, "sk-rotation", decrypted)
+
+	// 负例：无 PREVIOUS 时解密必须失败
+	t.Setenv("CHANNEL_KEY_MASTER_KEY_PREVIOUS", "")
+	_, err = DecryptChannelKey(encrypted)
+	require.Error(t, err)
 }
