@@ -27,10 +27,14 @@ func TestGetChannelBareBranchCarriesRateLimitFields(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
-	common.RedisEnabled = false
+	// controller 包无 TestMain：覆盖全局状态必须在 cleanup 中还原，否则按测试
+	// 顺序污染后续用例（参照 service 包测试模式）。
+	originalDB := model.DB
+	originalLogDB := model.LOG_DB
+	originalRedisEnabled := common.RedisEnabled
 	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.RedisEnabled = false
 	common.MemoryCacheEnabled = false // force the database path of CacheGetChannel
-	t.Cleanup(func() { common.MemoryCacheEnabled = originalMemoryCacheEnabled })
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -39,6 +43,10 @@ func TestGetChannelBareBranchCarriesRateLimitFields(t *testing.T) {
 	model.LOG_DB = db
 	require.NoError(t, db.AutoMigrate(&model.Channel{}))
 	t.Cleanup(func() {
+		model.DB = originalDB
+		model.LOG_DB = originalLogDB
+		common.RedisEnabled = originalRedisEnabled
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
 		sqlDB, err := db.DB()
 		if err == nil {
 			_ = sqlDB.Close()

@@ -456,17 +456,41 @@ func RelayMidjourney(c *gin.Context) {
 	}
 
 	var mjErr *taskdto.MidjourneyResponse
-	switch relayInfo.RelayMode {
-	case relayconstant.RelayModeMidjourneyNotify:
-		mjErr = relay.RelayMidjourneyNotify(c)
-	case relayconstant.RelayModeMidjourneyTaskFetch, relayconstant.RelayModeMidjourneyTaskFetchByCondition:
-		mjErr = relay.RelayMidjourneyTask(c, relayInfo.RelayMode)
-	case relayconstant.RelayModeMidjourneyTaskImageSeed:
-		mjErr = relay.RelayMidjourneyTaskImageSeed(c)
-	case relayconstant.RelayModeSwapFace:
-		mjErr = relay.RelaySwapFace(c, relayInfo)
-	default:
-		mjErr = relay.RelayMidjourneySubmit(c, relayInfo)
+	// B2 闸门：提交类操作（imagine/change/swap-face/upload 等）计费走
+	// mjproxy_handler 自身的 post-consume 路径，此前绕过分层限流/并发/日预算。
+	// 在认证后、处理前补齐；429 映射与同步路径一致（Code 30 → 429）。任务查询
+	// 与通知是只读操作，不占提交闸门。
+	if mjSubmitMode(relayInfo.RelayMode) {
+		if err := service.EnforceRelayScopeRateLimits(c, relayInfo.OriginModelName, 0); err != nil {
+			mjErr = &taskdto.MidjourneyResponse{Code: 30, Description: "rate limit exceeded: " + err.Error()}
+		} else if releaseConcurrency, err := service.AcquireRelayConcurrency(c); err != nil {
+			mjErr = &taskdto.MidjourneyResponse{Code: 30, Description: "concurrency limit exceeded: " + err.Error()}
+		} else {
+			defer releaseConcurrency()
+			if token, ok := common.GetContextKeyType[*model.Token](c, constant.ContextKeyToken); ok && token != nil {
+				if err := service.CheckTokenDailyMonthlyQuota(c, token.Id, token.DailyQuota, token.MonthlyQuota); err != nil {
+					mjErr = &taskdto.MidjourneyResponse{Code: 30, Description: "token budget exceeded: " + err.Error()}
+				}
+			} else {
+				// 结构防线：TokenAuth 已认证，token 应当存在于 context；缺失时仅跳过
+				// 日/月预算闸门并记录告警（限流/并发闸门不受影响）。
+				common.SysError(fmt.Sprintf("RelayMidjourney submit path: token missing from context (mode %d), budget gate skipped", relayInfo.RelayMode))
+			}
+		}
+	}
+	if mjErr == nil {
+		switch relayInfo.RelayMode {
+		case relayconstant.RelayModeMidjourneyNotify:
+			mjErr = relay.RelayMidjourneyNotify(c)
+		case relayconstant.RelayModeMidjourneyTaskFetch, relayconstant.RelayModeMidjourneyTaskFetchByCondition:
+			mjErr = relay.RelayMidjourneyTask(c, relayInfo.RelayMode)
+		case relayconstant.RelayModeMidjourneyTaskImageSeed:
+			mjErr = relay.RelayMidjourneyTaskImageSeed(c)
+		case relayconstant.RelayModeSwapFace:
+			mjErr = relay.RelaySwapFace(c, relayInfo)
+		default:
+			mjErr = relay.RelayMidjourneySubmit(c, relayInfo)
+		}
 	}
 	//err = relayMidjourneySubmit(c, relayMode)
 	log.Println(mjErr)
@@ -483,6 +507,23 @@ func RelayMidjourney(c *gin.Context) {
 		})
 		channelId := c.GetInt("channel_id")
 		logger.LogError(c, fmt.Sprintf("relay error (channel #%d, status code %d): %s", channelId, statusCode, fmt.Sprintf("%s %s", mjErr.Description, mjErr.Result)))
+	}
+}
+
+// mjSubmitMode reports whether the relay mode is a Midjourney submit operation
+// (billed through mjproxy_handler's own post-consume path) rather than a
+// read-only task query or notification. Submit operations must pass the B2
+// gates (layered rate limits / concurrency / daily-monthly budget); fetch and
+// notify are status reads and must not occupy the submit gates.
+func mjSubmitMode(mode int) bool {
+	switch mode {
+	case relayconstant.RelayModeMidjourneyNotify,
+		relayconstant.RelayModeMidjourneyTaskFetch,
+		relayconstant.RelayModeMidjourneyTaskFetchByCondition,
+		relayconstant.RelayModeMidjourneyTaskImageSeed:
+		return false
+	default:
+		return true
 	}
 }
 

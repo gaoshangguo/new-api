@@ -106,6 +106,7 @@ func Distribute() func(c *gin.Context) {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
+						tokenChannelAllowlistOK(c, preferred.Id) &&
 						channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
 						if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
@@ -162,12 +163,36 @@ func Distribute() func(c *gin.Context) {
 			}
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
+		if channel != nil {
+			if newAPIError := SetupContextForSelectedChannel(c, channel, modelRequest.Model); newAPIError != nil {
+				statusCode := newAPIError.StatusCode
+				if statusCode == 0 {
+					statusCode = http.StatusInternalServerError
+				}
+				abortWithOpenAiMessage(c, statusCode, newAPIError.Error(), newAPIError.GetErrorCode())
+				return
+			}
+		}
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
 			service.RecordChannelAffinity(c, channel.Id)
 		}
 	}
+}
+
+// tokenChannelAllowlistOK reports whether the token-level channel allowlist set
+// by TokenAuth (ContextKeyTokenChannelLimits) permits the channel. A missing or
+// empty allowlist means unrestricted. Used by the affinity branch (a disallowed
+// preferred channel falls back to normal distribution) and by
+// SetupContextForSelectedChannel (rejects specific-channel picks that bypass
+// the allowlist-aware random selection).
+func tokenChannelAllowlistOK(c *gin.Context, channelID int) bool {
+	ids, _ := common.GetContextKeyType[map[int]struct{}](c, constant.ContextKeyTokenChannelLimits)
+	if len(ids) == 0 {
+		return true
+	}
+	_, allowed := ids[channelID]
+	return allowed
 }
 
 // channelSupportsRequestPath reports whether a channel can serve the request path.
@@ -445,6 +470,19 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	c.Set("original_model", modelName) // for retry
 	if channel == nil {
 		return types.NewError(errors.New("channel is nil"), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	}
+	// Token 级渠道白名单 choke point：specific-channel 与 affinity 路径绕过白名单
+	// 感知的随机分发，必须在选定渠道进入 relay 上下文前统一校验。affinity 分支在
+	// 选择时已预过滤（不在白名单则回退正常分发），因此这里只会拒绝
+	// specific-channel 显式指定或其它途径绕过的渠道。
+	if !tokenChannelAllowlistOK(c, channel.Id) {
+		return types.NewErrorWithStatusCode(
+			errors.New("channel is not allowed for this token"),
+			types.ErrorCodeAccessDenied,
+			http.StatusForbidden,
+			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithNoRecordErrorLog(),
+		)
 	}
 	common.SetContextKey(c, constant.ContextKeyChannelId, channel.Id)
 	common.SetContextKey(c, constant.ContextKeyChannelName, channel.Name)
