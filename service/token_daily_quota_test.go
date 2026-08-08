@@ -112,6 +112,76 @@ func TestPreConsumeBillingTokenDailyQuotaExceededMapsTo429(t *testing.T) {
 	require.Nil(t, info.Billing)
 }
 
+// TestPreConsumeBillingTrustedUnlimitedTokenDailyQuotaStill429 verifies that
+// the trust bypass only waives the total-quota pre-charge: an unlimited-quota
+// token owned by a user above the trust threshold (10 * QuotaPerUnit) whose
+// daily budget is exceeded must still be rejected with 429. B2 design:
+// 无限额只豁免总预算，日/月预算是独立防护维度（配置了就该执行）。
+func TestPreConsumeBillingTrustedUnlimitedTokenDailyQuotaStill429(t *testing.T) {
+	truncate(t)
+	gin.SetMode(gin.TestMode)
+	require.NoError(t, model.DB.AutoMigrate(&model.Log{}, &model.Token{}, &model.User{}))
+	dayStart, _ := calendarWindowStarts(t)
+
+	// 用户额度 6,000,000 > 信任阈值 5,000,000（10 * QuotaPerUnit），钱包侧触发信任旁路
+	user := &model.User{Id: 9086, Username: "budget-429-trusted-user", Quota: 6000000, Status: common.UserStatusEnabled}
+	require.NoError(t, model.DB.Create(user).Error)
+	// 无限额令牌：总预算豁免，但日预算仍必须执行
+	token := &model.Token{
+		Id: 9087, UserId: user.Id, Key: "budget-429-trusted-key", Name: "budget-429-trusted-token",
+		Status: common.TokenStatusEnabled, RemainQuota: 100000, UnlimitedQuota: true, DailyQuota: 1,
+	}
+	require.NoError(t, model.DB.Create(token).Error)
+	seedConsumeLogs(t, token.Id, dayStart, 100) // 今日已用 100 >= 日预算 1
+
+	c, _ := gin.CreateTestContext(nil)
+	info := &relaycommon.RelayInfo{
+		UserId:         user.Id,
+		TokenId:        token.Id,
+		TokenKey:       token.Key,
+		TokenUnlimited: true,
+	}
+
+	apiErr := PreConsumeBilling(c, 2000, info)
+
+	require.NotNil(t, apiErr)
+	require.Equal(t, types.ErrorCodePreConsumeTokenQuotaFailed, apiErr.GetErrorCode())
+	require.Equal(t, http.StatusTooManyRequests, apiErr.StatusCode)
+	require.ErrorIs(t, apiErr, errTokenDailyQuotaExceeded)
+	require.Nil(t, info.Billing)
+}
+
+// TestPreConsumeBillingTrustedUnlimitedTokenNoBudgetSucceeds verifies the
+// trusted path still succeeds when no daily/monthly budget is configured
+// (0 = unlimited), guarding the restructured pre-consume against over-rejecting
+// trusted requests.
+func TestPreConsumeBillingTrustedUnlimitedTokenNoBudgetSucceeds(t *testing.T) {
+	truncate(t)
+	gin.SetMode(gin.TestMode)
+	require.NoError(t, model.DB.AutoMigrate(&model.Log{}, &model.Token{}, &model.User{}))
+
+	user := &model.User{Id: 9084, Username: "budget-trusted-ok-user", Quota: 6000000, Status: common.UserStatusEnabled}
+	require.NoError(t, model.DB.Create(user).Error)
+	token := &model.Token{
+		Id: 9085, UserId: user.Id, Key: "budget-trusted-ok-key", Name: "budget-trusted-ok-token",
+		Status: common.TokenStatusEnabled, RemainQuota: 100000, UnlimitedQuota: true, // 日/月预算 0 = 不限
+	}
+	require.NoError(t, model.DB.Create(token).Error)
+
+	c, _ := gin.CreateTestContext(nil)
+	info := &relaycommon.RelayInfo{
+		UserId:         user.Id,
+		TokenId:        token.Id,
+		TokenKey:       token.Key,
+		TokenUnlimited: true,
+	}
+
+	apiErr := PreConsumeBilling(c, 2000, info)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, info.Billing)
+}
+
 // TestPreConsumeBillingInsufficientTokenQuotaStays403 verifies that errors
 // other than budget exceedance keep the original 403 mapping, so the 429
 // branch does not over-match unrelated pre-consume failures.

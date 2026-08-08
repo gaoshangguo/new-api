@@ -197,16 +197,16 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	}
 
 	// ---- 1) 预扣令牌额度 ----
-	if effectiveQuota > 0 {
-		if err := PreConsumeTokenQuota(s.relayInfo, effectiveQuota); err != nil {
-			// 日/月预算超限属于限流语义，返回 429 而非 403
-			if errors.Is(err, errTokenDailyQuotaExceeded) || errors.Is(err, errTokenMonthlyQuotaExceeded) {
-				return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
-			}
-			return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+	// 信任旁路仅豁免总预算预扣：日/月预算是独立防护维度，配置了就必须执行。
+	// 信任路径 effectiveQuota=0，PreConsumeTokenQuota 只做日/月检查，不扣减额度。
+	if err := PreConsumeTokenQuota(s.relayInfo, effectiveQuota); err != nil {
+		// 日/月预算超限属于限流语义，返回 429 而非 403
+		if errors.Is(err, errTokenDailyQuotaExceeded) || errors.Is(err, errTokenMonthlyQuotaExceeded) {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
-		s.tokenConsumed = effectiveQuota
+		return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 	}
+	s.tokenConsumed = effectiveQuota
 
 	// ---- 2) 预扣资金来源 ----
 	if err := s.funding.PreConsume(effectiveQuota); err != nil {

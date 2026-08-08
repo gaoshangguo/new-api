@@ -309,7 +309,8 @@ func (token *Token) Update() (err error) {
 		}
 	}()
 	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry").Updates(token).Error
+		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry",
+		"daily_quota", "monthly_quota", "channel_limits", "max_concurrent_requests", "rate_limit_rpm", "rate_limit_tpm").Updates(token).Error
 	return err
 }
 
