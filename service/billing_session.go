@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -48,6 +49,8 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	delta := actualQuota - s.preConsumedQuota
 	if delta == 0 {
 		s.settled = true
+		// 实际消耗与预扣一致：消费日志仍会记录 actualQuota，预算计数器同步递增
+		s.bumpBudgetCounter(actualQuota)
 		return nil
 	}
 	// 1) 调整资金来源（仅在尚未提交时执行，防止重复调用）
@@ -76,7 +79,26 @@ func (s *BillingSession) Settle(actualQuota int) error {
 		s.relayInfo.SubscriptionPostDelta += int64(delta)
 	}
 	s.settled = true
+	// B2 预算计数器结算递增（主同步路径的结算都在这里）：无论 delta 正负，
+	// 消费日志都会记录 actualQuota，日/月缓存键必须同步递增才不会被冻结。
+	s.bumpBudgetCounter(actualQuota)
 	return tokenErr
+}
+
+// bumpBudgetCounter mirrors a completed settle into the cached day/month
+// budget counters (bumpTokenBudgetUsed) so the pre-consume check of the next
+// request sees this consumption instead of the stale window key.
+func (s *BillingSession) bumpBudgetCounter(actualQuota int) {
+	relayInfo := s.relayInfo
+	if relayInfo == nil || relayInfo.TokenId <= 0 || relayInfo.IsPlayground {
+		return
+	}
+	token, err := model.GetTokenByKey(relayInfo.TokenKey, false)
+	if err != nil {
+		common.SysError(fmt.Sprintf("token %d budget bump lookup failed: %v", relayInfo.TokenId, err))
+		return
+	}
+	bumpTokenBudgetUsed(context.Background(), token.Id, int64(actualQuota), token.DailyQuota, token.MonthlyQuota)
 }
 
 // Refund 退还所有预扣费，幂等安全，异步执行。

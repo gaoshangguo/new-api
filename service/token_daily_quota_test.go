@@ -11,7 +11,9 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -211,4 +213,136 @@ func TestPreConsumeBillingInsufficientTokenQuotaStays403(t *testing.T) {
 	require.NotNil(t, apiErr)
 	require.Equal(t, types.ErrorCodePreConsumeTokenQuotaFailed, apiErr.GetErrorCode())
 	require.Equal(t, http.StatusForbidden, apiErr.StatusCode)
+}
+
+// ---------------------------------------------------------------------------
+// C1 回归：日/月预算缓存冻结 — 结算递增必须让窗口键随消费增长
+// ---------------------------------------------------------------------------
+
+// TestCheckTokenDailyMonthlyQuotaSettleBumpUnfreezesCache locks the C1 freeze
+// regression on the in-memory fallback (no Redis in the service fixture): the
+// window key filled by the first check of the day never changed, so later
+// consumption stayed invisible until the key expired. Filling the cache,
+// applying the settle bump (simulating a consumed request), then re-checking
+// must reject with the daily-budget error.
+func TestCheckTokenDailyMonthlyQuotaSettleBumpUnfreezesCache(t *testing.T) {
+	truncate(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Log{}, &model.Token{}))
+	tokenID := 9201
+	require.NoError(t, model.DB.Create(&model.Token{
+		Id: tokenID, UserId: 9201, Key: "budget-bump-key", DailyQuota: 100,
+	}).Error)
+
+	ctx := context.Background()
+	// 首次检查：无消费日志 → 聚合 0 并填充窗口键
+	require.NoError(t, CheckTokenDailyMonthlyQuota(ctx, tokenID, 100, 0))
+	// 冻结复现：无结算递增时重复检查始终放行（缓存停留在 0）
+	require.NoError(t, CheckTokenDailyMonthlyQuota(ctx, tokenID, 100, 0))
+
+	// 结算递增 150（模拟当天后续消费越过预算）
+	bumpTokenBudgetUsed(ctx, tokenID, 150, 100, 0)
+
+	err := CheckTokenDailyMonthlyQuota(ctx, tokenID, 100, 0)
+	require.ErrorIs(t, err, errTokenDailyQuotaExceeded)
+}
+
+// TestPostConsumeQuotaBumpsBudgetCache exercises the real settlement path: the
+// direct-charge post-consume (mjproxy_handler / violation-fee style) must raise
+// the day budget counter so a later check rejects. Without the C1 fix the
+// counter never moves and the budget only applies to the first request of the
+// day.
+func TestPostConsumeQuotaBumpsBudgetCache(t *testing.T) {
+	truncate(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Log{}, &model.Token{}, &model.User{}))
+	user := &model.User{Id: 9202, Username: "budget-bump-user", Quota: 100000, Status: common.UserStatusEnabled}
+	require.NoError(t, model.DB.Create(user).Error)
+	token := &model.Token{
+		Id: 9203, UserId: user.Id, Key: "budget-bump-real-key", Name: "budget-bump-real",
+		Status: common.TokenStatusEnabled, RemainQuota: 100000, DailyQuota: 100,
+	}
+	require.NoError(t, model.DB.Create(token).Error)
+
+	info := &relaycommon.RelayInfo{UserId: user.Id, TokenId: token.Id, TokenKey: token.Key, TokenUnlimited: false}
+	ctx := context.Background()
+	// 首次检查填充缓存（今日已用 0）
+	require.NoError(t, CheckTokenDailyMonthlyQuota(ctx, token.Id, 100, 0))
+
+	require.NoError(t, PostConsumeQuota(info, 150, 0, false))
+
+	err := CheckTokenDailyMonthlyQuota(ctx, token.Id, 100, 0)
+	require.ErrorIs(t, err, errTokenDailyQuotaExceeded)
+}
+
+// TestCheckTokenDailyMonthlyQuotaRedisIncrBy covers the Redis (default
+// deployment) settle path: the aggregation SET followed by the INCRBY settle
+// bump must leave the next check rejecting, and the window key must exist with
+// the expected value and carry the window TTL.
+func TestCheckTokenDailyMonthlyQuotaRedisIncrBy(t *testing.T) {
+	truncate(t)
+	s, err := miniredis.Run()
+	require.NoError(t, err)
+	defer s.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+	old := common.RDB
+	common.RDB = rdb
+	defer func() { common.RDB = old }()
+
+	require.NoError(t, model.DB.AutoMigrate(&model.Log{}, &model.Token{}))
+	tokenID := 9204
+	require.NoError(t, model.DB.Create(&model.Token{
+		Id: tokenID, UserId: 9204, Key: "budget-redis-key", DailyQuota: 100,
+	}).Error)
+
+	ctx := context.Background()
+	require.NoError(t, CheckTokenDailyMonthlyQuota(ctx, tokenID, 100, 0)) // 聚合 0 并 SET 键
+
+	// 结算递增走真实 bumpTokenBudgetUsed（INCRBY + EXPIRE）
+	bumpTokenBudgetUsed(ctx, tokenID, 150, 100, 0)
+
+	err = CheckTokenDailyMonthlyQuota(ctx, tokenID, 100, 0)
+	require.ErrorIs(t, err, errTokenDailyQuotaExceeded)
+
+	// 键格式与 TTL 断言（token_daily_quota:<id>:<YYYYMMDD>）
+	key := tokenBudgetCacheKey("daily", tokenID, time.Now())
+	got, err := s.Get(key)
+	require.NoError(t, err)
+	assert.Equal(t, "150", got)
+	ttl := s.TTL(key) // miniredis v2.38: TTL returns a single duration
+	assert.Greater(t, ttl, time.Duration(0), "window key must carry the window TTL")
+}
+
+// TestBumpTokenBudgetUsedRefund covers the refund side: a negative settle delta
+// decrements the counter so the budget keeps tracking the net consumption.
+func TestBumpTokenBudgetUsedRefund(t *testing.T) {
+	truncate(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Log{}, &model.Token{}))
+	tokenID := 9206
+	require.NoError(t, model.DB.Create(&model.Token{
+		Id: tokenID, UserId: 9206, Key: "budget-refund-key", DailyQuota: 100,
+	}).Error)
+
+	ctx := context.Background()
+	require.NoError(t, CheckTokenDailyMonthlyQuota(ctx, tokenID, 100, 0)) // 填充 = 0
+	bumpTokenBudgetUsed(ctx, tokenID, 150, 100, 0)                        // +150
+	bumpTokenBudgetUsed(ctx, tokenID, -60, 100, 0)                        // 退款 -60 → 90
+
+	require.NoError(t, CheckTokenDailyMonthlyQuota(ctx, tokenID, 100, 0)) // 90 < 100 放行
+	err := CheckTokenDailyMonthlyQuota(ctx, tokenID, 90, 0)
+	require.ErrorIs(t, err, errTokenDailyQuotaExceeded) // 90 >= 90 拒绝
+}
+
+// TestBumpTokenBudgetUsedSkipsUnconfiguredToken verifies the budget-gating of
+// the bump: tokens without a configured budget (0 = unlimited) must never grow
+// cache keys, so a Redis deployment does not accumulate counters for tokens
+// that never read them.
+func TestBumpTokenBudgetUsedSkipsUnconfiguredToken(t *testing.T) {
+	tokenID := 9207
+	bumpTokenBudgetUsed(context.Background(), tokenID, 150, 0, 0)
+
+	memoryTokenBudget.mu.Lock()
+	_, dayExists := memoryTokenBudget.value[tokenBudgetCacheKey("daily", tokenID, time.Now())]
+	_, monthExists := memoryTokenBudget.value[tokenBudgetCacheKey("monthly", tokenID, time.Now())]
+	memoryTokenBudget.mu.Unlock()
+	assert.False(t, dayExists, "unconfigured daily budget must not create cache keys")
+	assert.False(t, monthExists, "unconfigured monthly budget must not create cache keys")
 }

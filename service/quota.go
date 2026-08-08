@@ -148,10 +148,21 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 		return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
 	}
 
-	err = PostConsumeQuota(relayInfo, quota, 0, false)
+	// Realtime websocket sessions pre-charge each response segment before the
+	// session closes; the segments are financial pre-consumes consolidated into
+	// the single final settlement in PostWssConsumeQuota. The day/month budget
+	// counter must mirror the final consumption only, so per-segment charges
+	// pass recordProjectConsumption=false and the counter is bumped exactly
+	// once by the final settle (see BillingSession.bumpBudgetCounter).
+	updatedPreConsumedQuota := int64(relayInfo.FinalPreConsumedQuota) + int64(quota)
+	if updatedPreConsumedQuota < 0 || updatedPreConsumedQuota > int64(common.MaxQuota) {
+		return fmt.Errorf("realtime pre-consumed quota total is out of range: %d", updatedPreConsumedQuota)
+	}
+	err = postConsumeQuota(relayInfo, quota, 0, false, false)
 	if err != nil {
 		return err
 	}
+	relayInfo.FinalPreConsumedQuota = int(updatedPreConsumedQuota)
 	logger.LogInfo(ctx, "realtime streaming consume quota success, quota: "+fmt.Sprintf("%d", quota))
 	return nil
 }
@@ -412,7 +423,16 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 	return nil
 }
 
-func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool) (err error) {
+func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool) error {
+	return postConsumeQuota(relayInfo, quota, preConsumedQuota, sendEmail, true)
+}
+
+// postConsumeQuota updates the financial balances for a direct charge.
+// Realtime websocket sessions make several incremental pre-charges before
+// their final aggregate usage is known; those callers set
+// recordProjectConsumption to false so the final settlement is the sole
+// day/month budget counter increment.
+func postConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool, recordProjectConsumption bool) (err error) {
 
 	// 1) Consume from wallet quota OR subscription item
 	if relayInfo != nil && relayInfo.BillingSource == BillingSourceSubscription {
@@ -446,6 +466,19 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 		}
 		if err != nil {
 			return err
+		}
+		// B2 预算计数器结算递增：消费日志聚合的日/月键首次填充后不会自行变化，
+		// 结算时必须同步 INCRBY/DECRBY，否则当天后续消费对预算检查不可见。
+		// realtime 增量预扣（recordProjectConsumption=false）不计入，只有最终
+		// 聚合计入；金额 = 实际计费（quota + preConsumedQuota，负数=退款递减）。
+		// 仅当 token 配置了对应预算（DailyQuota/MonthlyQuota > 0）时才写键。
+		if recordProjectConsumption {
+			token, tokenErr := model.GetTokenByKey(relayInfo.TokenKey, false)
+			if tokenErr != nil {
+				common.SysError(fmt.Sprintf("token %d budget bump lookup failed: %v", relayInfo.TokenId, tokenErr))
+			} else {
+				bumpTokenBudgetUsed(context.Background(), token.Id, int64(quota)+int64(preConsumedQuota), token.DailyQuota, token.MonthlyQuota)
+			}
 		}
 	}
 
