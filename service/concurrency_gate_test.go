@@ -97,13 +97,24 @@ func TestAcquireRelayConcurrencyRollbackAndRelease(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, release2)
 
-	// 若企业槽位未被回滚，第 3 个请求会因企业超限失败；回滚后仅 Key 超限
-	release3, err := AcquireRelayConcurrency(c)
-	require.Error(t, err)
-	require.Nil(t, release3)
-
-	// 释放第 1 个请求后，第 4 个请求完整成功（证明企业/Key 槽位都被释放）
+	// 回滚契约主断言：释放第 1 个请求后，第 3 个请求必须完整成功
+	// （回滚则企业计数 0、Key 0；未回滚则企业计数 1——仍 ≤ 上限 2，因此
+	// 此断言本身无法区分回滚有无，决定性区分依赖下方 limit=1 探测）。
 	release1()
+	release3, err := AcquireRelayConcurrency(c)
+	require.NoError(t, err)
+	require.NotNil(t, release3)
+	release3()
+
+	// 决定性探测：以 limit=1 借入企业作用域。回滚则计数为 0、INCR→1 成功；
+	// r2 借到的企业槽位若泄漏（未回滚）则计数为 1、INCR→2 超限失败——
+	// 回滚契约被删除时该断言必红。
+	ok, err := AcquireConcurrencySlot(context.Background(), "company", "9001", 1)
+	require.NoError(t, err)
+	require.True(t, ok) // 回滚契约：r2 借到的企业槽位已被释放
+	require.NoError(t, ReleaseConcurrencySlot(context.Background(), "company", "9001"))
+
+	// 全部释放后再次完整借入成功
 	release4, err := AcquireRelayConcurrency(c)
 	require.NoError(t, err)
 	require.NotNil(t, release4)

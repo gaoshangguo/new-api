@@ -163,6 +163,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
+	// Concurrency gate sits at the same checkpoint as the layered rate limits
+	// (design 5.4): after authentication, before pre-consume. Any over-limit
+	// scope maps to 429 exactly like the rate limit path, and the slot is held
+	// (deferred release) for the whole request lifetime including retries.
+	releaseConcurrency, err := service.AcquireRelayConcurrency(c)
+	if err != nil {
+		newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeAccessDenied, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		return
+	}
+	defer releaseConcurrency()
+
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
