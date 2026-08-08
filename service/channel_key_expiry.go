@@ -61,7 +61,14 @@ func (channelKeyExpiryTaskHandler) Run(ctx context.Context, task *model.SystemTa
 		failSystemTask(task, runnerID, err)
 		return
 	}
+	// 检测与外发分离：命中提醒默认只写系统任务结果与日志，须显式开启
+	// CHANNEL_KEY_EXPIRY_NOTIFY_ENABLED 才调用 NotifyRootUser 外部通知。
+	notifyEnabled := common.GetEnvOrDefaultBool("CHANNEL_KEY_EXPIRY_NOTIFY_ENABLED", false)
 	for _, reminder := range result.Reminders {
+		if !notifyEnabled {
+			logger.LogInfo(ctx, fmt.Sprintf("channel key expiry detected, notify disabled: %s(#%d) expires %s", reminder.Name, reminder.Id, reminder.ExpiresAtText))
+			continue
+		}
 		subject := fmt.Sprintf("渠道密钥即将到期：%s（#%d）", reminder.Name, reminder.Id)
 		content := fmt.Sprintf("渠道「%s」（#%d）密钥将于 %s 到期，请及时轮换。", reminder.Name, reminder.Id, reminder.ExpiresAtText)
 		NotifyRootUser(fmt.Sprintf("channel_key_expiry_%d", reminder.Id), subject, content)
