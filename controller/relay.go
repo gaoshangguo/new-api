@@ -152,6 +152,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	relayInfo.SetEstimatePromptTokens(tokens)
+	common.SetContextKey(c, constant.ContextKeyEstimatedTokens, tokens)
+
+	// Layered scope rate limits (enterprise -> project -> token -> model) run
+	// after authentication and token estimation but before pre-consume, so a
+	// rate-limited request never consumes quota.
+	estimatedTokens := int64(common.GetContextKeyInt(c, constant.ContextKeyEstimatedTokens))
+	if err := service.EnforceRelayScopeRateLimits(c, relayInfo.OriginModelName, estimatedTokens); err != nil {
+		newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeAccessDenied, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		return
+	}
 
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {
@@ -201,6 +211,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 
 		addUsedChannel(c, channel.Id)
+		// Channel-level rate limit (RPM/TPM) after channel selection and before
+		// the request is relayed upstream.
+		if err := service.EnforceChannelRateLimit(c, channel.Id, channel.RateLimitRPM, channel.RateLimitTPM, estimatedTokens); err != nil {
+			newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeAccessDenied, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			break
+		}
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
 			// Ensure consistent 413 for oversized bodies even when error occurs later (e.g., retry path)

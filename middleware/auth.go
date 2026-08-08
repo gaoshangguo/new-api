@@ -431,6 +431,7 @@ func TokenAuth() func(c *gin.Context) {
 			return
 		}
 		common.SetContextKey(c, constant.ContextKeyTokenChannelLimits, tokenChannelIDs)
+		common.SetContextKey(c, constant.ContextKeyToken, token)
 
 		allowIps := token.GetIpLimits()
 		if len(allowIps) > 0 {

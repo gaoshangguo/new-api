@@ -20,6 +20,10 @@ const (
 	ContextKeyTokenModelLimit        ContextKey = "token_model_limit"
 	ContextKeyTokenChannelLimits     ContextKey = "token_channel_limits"
 	ContextKeyTokenCrossGroupRetry   ContextKey = "token_cross_group_retry"
+	// ContextKeyToken stores the authenticated *model.Token so downstream
+	// request-scoped guards (e.g. layered RPM/TPM rate limits) can read the
+	// token's limit fields without another cache or DB lookup.
+	ContextKeyToken ContextKey = "token"
 
 	/* channel related keys */
 	ContextKeyChannelId                ContextKey = "channel_id"
