@@ -111,10 +111,14 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
+func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string, allowedChannelIDs ...map[int]struct{}) (*Channel, error) {
+	var allowed map[int]struct{}
+	if len(allowedChannelIDs) > 0 {
+		allowed = allowedChannelIDs[0]
+	}
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, requestPath)
+		return GetChannel(group, model, retry, requestPath, allowed)
 	}
 
 	channelSyncLock.RLock()
@@ -122,11 +126,13 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 
 	// First, try to find channels with the exact model name.
 	channels := filterChannelsByRequestPathAndModel(group2model2channels[group][model], requestPath, model)
+	channels = filterChannelsByAllowedIDs(channels, allowed)
 
 	// If no channels found, try to find channels with the normalized model name.
 	if len(channels) == 0 {
 		normalizedModel := ratio_setting.FormatMatchingModelName(model)
 		channels = filterChannelsByRequestPathAndModel(group2model2channels[group][normalizedModel], requestPath, model)
+		channels = filterChannelsByAllowedIDs(channels, allowed)
 	}
 
 	if len(channels) == 0 {
@@ -206,6 +212,22 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 	}
 	// return null if no channel is not found
 	return nil, errors.New("channel not found")
+}
+
+// filterChannelsByAllowedIDs applies an optional project channel allow-list.
+// nil means unrestricted, while a non-nil empty map is an explicit deny-all
+// policy. It never mutates the shared memory-cache slice.
+func filterChannelsByAllowedIDs(channels []int, allowed map[int]struct{}) []int {
+	if allowed == nil {
+		return channels
+	}
+	filtered := make([]int, 0, len(channels))
+	for _, channelID := range channels {
+		if _, ok := allowed[channelID]; ok {
+			filtered = append(filtered, channelID)
+		}
+	}
+	return filtered
 }
 
 // filterChannelsByRequestPathAndModel restricts candidates by request path and

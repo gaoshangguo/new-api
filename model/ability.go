@@ -60,12 +60,14 @@ func GetAllEnableAbilities() []Ability {
 	return abilities
 }
 
-func getPriority(group string, model string, retry int) (int, error) {
+func getPriority(group string, model string, retry int, allowedChannelIDs ...map[int]struct{}) (int, error) {
 
 	var priorities []int
-	err := DB.Model(&Ability{}).
+	query := DB.Model(&Ability{}).
 		Select("DISTINCT(priority)").
-		Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
+		Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true)
+	query = applyAbilityChannelAllowList(query, firstAllowedChannelIDs(allowedChannelIDs))
+	err := query.
 		Order("priority DESC").              // 按优先级降序排序
 		Pluck("priority", &priorities).Error // Pluck用于将查询的结果直接扫描到一个切片中
 
@@ -90,26 +92,54 @@ func getPriority(group string, model string, retry int) (int, error) {
 	return priorityToUse, nil
 }
 
-func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
+func firstAllowedChannelIDs(allowedChannelIDs []map[int]struct{}) map[int]struct{} {
+	if len(allowedChannelIDs) == 0 {
+		return nil
+	}
+	return allowedChannelIDs[0]
+}
+
+func applyAbilityChannelAllowList(query *gorm.DB, allowed map[int]struct{}) *gorm.DB {
+	if allowed == nil {
+		return query
+	}
+	allowedIDs := make([]int, 0, len(allowed))
+	for channelID := range allowed {
+		allowedIDs = append(allowedIDs, channelID)
+	}
+	if len(allowedIDs) == 0 {
+		// A non-nil empty allow-list is an explicit deny-all project policy.
+		// This predicate has the same semantics in SQLite, MySQL, and
+		// PostgreSQL.
+		return query.Where("1 = 0")
+	}
+	return query.Where("channel_id IN ?", allowedIDs)
+}
+
+func getChannelQuery(group string, model string, retry int, allowedChannelIDs ...map[int]struct{}) (*gorm.DB, error) {
+	allowed := firstAllowedChannelIDs(allowedChannelIDs)
 	maxPrioritySubQuery := DB.Model(&Ability{}).Select("MAX(priority)").Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true)
+	maxPrioritySubQuery = applyAbilityChannelAllowList(maxPrioritySubQuery, allowed)
 	channelQuery := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = (?)", group, model, true, maxPrioritySubQuery)
+	channelQuery = applyAbilityChannelAllowList(channelQuery, allowed)
 	if retry != 0 {
-		priority, err := getPriority(group, model, retry)
+		priority, err := getPriority(group, model, retry, allowed)
 		if err != nil {
 			return nil, err
 		} else {
 			channelQuery = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = ?", group, model, true, priority)
+			channelQuery = applyAbilityChannelAllowList(channelQuery, allowed)
 		}
 	}
 
 	return channelQuery, nil
 }
 
-func GetChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
+func GetChannel(group string, model string, retry int, requestPath string, allowedChannelIDs ...map[int]struct{}) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
-	channelQuery, err := getChannelQuery(group, model, retry)
+	channelQuery, err := getChannelQuery(group, model, retry, allowedChannelIDs...)
 	if err != nil {
 		return nil, err
 	}
