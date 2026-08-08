@@ -50,9 +50,9 @@
 
 ### 5.2 主密钥管理
 
-- 环境变量 `CHANNEL_KEY_MASTER_KEY`（≥32 字节；不满足时告警并回退）。
-- 回退链：`CHANNEL_KEY_MASTER_KEY` → `sha256(CRYPTO_SECRET)` → `sha256(SessionSecret)`（SessionSecret 已在 `common/init.go` 持久化到数据文件，重启稳定）。
-- 启动时若回退到非独立密钥，`common.SysError` 告警「生产环境建议设置 CHANNEL_KEY_MASTER_KEY」。
+- 环境变量 `CHANNEL_KEY_MASTER_KEY`（**恰好 32 字节**；非空但长度不符时告警并回退——2026-08-08 修订，原「≥32 字节」会放行 33-40 字节值导致 aes.NewCipher 运行时失败）。
+- 回退链：`CHANNEL_KEY_MASTER_KEY` → 数据目录持久化文件 `channel-key-master.key`（首次启动生成 32 随机字节，0600 权限；容器数据卷 `/data` 下，重启/重建容器均保留）→ `sha256(CRYPTO_SECRET||SESSION_SECRET)` 派生兜底（此路径启动时 SysError 告警）。
+- 2026-08-07 修订：原设计「SessionSecret 已在 common/init.go 持久化」经核查为错误假设（SessionSecret 仅从 env 读取，默认部署每次重启随机，将导致迁移密文跨重启不可解密）。改为主密钥独立文件持久化，不改变既有 SessionSecret 行为。
 
 ### 5.3 GORM 钩子（model/channel.go）
 
