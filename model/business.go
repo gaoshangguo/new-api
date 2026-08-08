@@ -505,6 +505,8 @@ func UpdateCompany(company *Company, actor BusinessActor) error {
 			"name": company.Name, "credit_code": company.CreditCode, "contact_name": company.ContactName,
 			"contact_email": company.ContactEmail, "contact_phone": company.ContactPhone, "contacts": company.Contacts,
 			"invoice_remark": company.InvoiceRemark,
+			"rate_limit_rpm": company.RateLimitRPM, "rate_limit_tpm": company.RateLimitTPM,
+			"max_concurrent_requests": company.MaxConcurrentRequests,
 		}).Error; err != nil {
 			return err
 		}
@@ -556,6 +558,8 @@ func UpdateBusinessProject(project *BusinessProject, reason string, actor Busine
 		if err := tx.Model(&BusinessProject{}).Where("id = ?", project.Id).Updates(map[string]interface{}{
 			"name": project.Name, "budget_quota": project.BudgetQuota, "low_balance_quota": project.LowBalanceQuota,
 			"model_limits": project.ModelLimits, "channel_limits": project.ChannelLimits, "status": project.Status,
+			"rate_limit_rpm": project.RateLimitRPM, "rate_limit_tpm": project.RateLimitTPM,
+			"max_concurrent_requests": project.MaxConcurrentRequests,
 		}).Error; err != nil {
 			return err
 		}

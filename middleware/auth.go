@@ -424,6 +424,14 @@ func TokenAuth() func(c *gin.Context) {
 			return
 		}
 
+		tokenChannelIDs, err := token.GetChannelLimitIDs()
+		if err != nil {
+			common.SysLog(fmt.Sprintf("TokenAuth channel limits parse error for token %d: %v", token.Id, err))
+			abortWithOpenAiMessage(c, http.StatusForbidden, "token channel limits configuration is invalid", types.ErrorCodeAccessDenied)
+			return
+		}
+		common.SetContextKey(c, constant.ContextKeyTokenChannelLimits, tokenChannelIDs)
+
 		allowIps := token.GetIpLimits()
 		if len(allowIps) > 0 {
 			clientIp := c.ClientIP()

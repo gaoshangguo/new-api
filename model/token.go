@@ -363,6 +363,29 @@ func (token *Token) GetModelLimitsMap() map[string]bool {
 	return limitsMap
 }
 
+// GetChannelLimitIDs parses the token-level channel allowlist JSON
+// ({"channels":[id,...]}). A nil/empty config means no restriction; malformed
+// non-empty config returns an error so the caller fails closed.
+func (token *Token) GetChannelLimitIDs() (map[int]struct{}, error) {
+	if token.ChannelLimits == nil || strings.TrimSpace(*token.ChannelLimits) == "" {
+		return nil, nil
+	}
+	var parsed struct {
+		Channels []int `json:"channels"`
+	}
+	if err := common.UnmarshalJsonStr(*token.ChannelLimits, &parsed); err != nil {
+		return nil, fmt.Errorf("token %d channel limits parse failed: %w", token.Id, err)
+	}
+	if len(parsed.Channels) == 0 {
+		return nil, nil
+	}
+	ids := make(map[int]struct{}, len(parsed.Channels))
+	for _, id := range parsed.Channels {
+		ids[id] = struct{}{}
+	}
+	return ids, nil
+}
+
 func DisableModelLimits(tokenId int) error {
 	token, err := GetTokenById(tokenId)
 	if err != nil {

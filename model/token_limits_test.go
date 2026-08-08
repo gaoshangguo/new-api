@@ -72,3 +72,24 @@ func TestChannelAndBusinessLimitFieldsPersist(t *testing.T) {
 	assert.Equal(t, int64(60000), loadedProject.RateLimitTPM)
 	assert.Equal(t, 4, loadedProject.MaxConcurrentRequests)
 }
+
+func TestTokenGetChannelLimitIDs(t *testing.T) {
+	valid := `{"channels":[7,9]}`
+	token := &Token{ChannelLimits: &valid}
+	ids, err := token.GetChannelLimitIDs()
+	require.NoError(t, err)
+	assert.Equal(t, map[int]struct{}{7: {}, 9: {}}, ids)
+
+	// 空配置 = 不限
+	empty := ``
+	token2 := &Token{ChannelLimits: &empty}
+	ids2, err := token2.GetChannelLimitIDs()
+	require.NoError(t, err)
+	assert.Nil(t, ids2)
+
+	// 非法 JSON fail-closed
+	bad := `{"channels":"gpt-4o"}`
+	token3 := &Token{ChannelLimits: &bad}
+	_, err = token3.GetChannelLimitIDs()
+	require.Error(t, err)
+}

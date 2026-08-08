@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -160,4 +161,36 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 		}
 	}
 	return channel, selectGroup, nil
+}
+
+// contextChannelAllowlist reads the token-level channel allowlist stored by
+// TokenAuth. A nil map means the token has no channel restriction.
+func contextChannelAllowlist(c *gin.Context) (map[int]struct{}, error) {
+	ids, ok := c.Get(string(constant.ContextKeyTokenChannelLimits))
+	if !ok {
+		return nil, nil
+	}
+	parsed, ok := ids.(map[int]struct{})
+	if !ok {
+		return nil, fmt.Errorf("invalid token channel limits in context")
+	}
+	return parsed, nil
+}
+
+// mergeChannelAllowlists returns the intersection when both lists are
+// non-empty, otherwise the non-empty one, otherwise nil (unrestricted).
+func mergeChannelAllowlists(a, b map[int]struct{}) map[int]struct{} {
+	if len(a) == 0 {
+		return b
+	}
+	if len(b) == 0 {
+		return a
+	}
+	out := make(map[int]struct{})
+	for id := range a {
+		if _, ok := b[id]; ok {
+			out[id] = struct{}{}
+		}
+	}
+	return out
 }
