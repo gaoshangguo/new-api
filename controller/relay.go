@@ -316,12 +316,24 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		if !autoBan {
 			autoBanInt = 0
 		}
-		return &model.Channel{
-			Id:      c.GetInt("channel_id"),
-			Type:    c.GetInt("channel_type"),
-			Name:    c.GetString("channel_name"),
-			AutoBan: &autoBanInt,
-		}, nil
+		// Load the full channel record instead of a bare context-derived struct:
+		// the main-path channel (selected by Distribute before any relay handler
+		// ran InitChannelMeta) must carry its rate limit fields so the
+		// channel-level RPM/TPM check applies on the first iteration too.
+		// CacheGetChannel falls back to the database when the memory cache is
+		// disabled.
+		channel, err := model.CacheGetChannel(c.GetInt("channel_id"))
+		if err != nil {
+			// Channel unavailable in cache/DB: fall back to the context-derived
+			// struct so the request can still proceed.
+			channel = &model.Channel{
+				Id:   c.GetInt("channel_id"),
+				Type: c.GetInt("channel_type"),
+				Name: c.GetString("channel_name"),
+			}
+		}
+		channel.AutoBan = &autoBanInt
+		return channel, nil
 	}
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 

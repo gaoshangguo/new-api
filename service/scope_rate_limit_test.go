@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -80,4 +83,36 @@ func TestCheckScopeRateLimitMemoryFallback(t *testing.T) {
 	allowed, err = CheckScopeRateLimit(context.Background(), "test", "m1", cfg, 0)
 	require.NoError(t, err)
 	assert.False(t, allowed)
+}
+
+// TestEnforceChannelRateLimitFromLoadedChannel verifies the channel-level rate
+// limit is enforced for a channel loaded through the cache/DB loader that
+// carries rate limit fields. This guards the regression where the main relay
+// path handed EnforceChannelRateLimit a channel struct with zeroed
+// RateLimitRPM/TPM and never limited the serving channel.
+func TestEnforceChannelRateLimitFromLoadedChannel(t *testing.T) {
+	rdb := newTestRedis(t)
+	old := common.RDB
+	common.RDB = rdb
+	defer func() { common.RDB = old }()
+
+	channel := &model.Channel{
+		Type: 1, Name: "rl-channel", Key: "sk-rl-channel", Status: 1, Group: "default",
+		RateLimitRPM: 1,
+	}
+	require.NoError(t, model.DB.Create(channel).Error)
+	loaded, err := model.CacheGetChannel(channel.Id)
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+	require.Equal(t, 1, loaded.RateLimitRPM)
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	// 第一次允许
+	require.NoError(t, EnforceChannelRateLimit(c, loaded.Id, loaded.RateLimitRPM, loaded.RateLimitTPM, 0))
+	// 第二次拒绝（超限）
+	err = EnforceChannelRateLimit(c, loaded.Id, loaded.RateLimitRPM, loaded.RateLimitTPM, 0)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errScopeRateLimitExceeded)
 }
