@@ -1201,28 +1201,32 @@ func CountChannelsGroupByType() (map[int64]int64, error) {
 
 // MigrateLegacyChannelKeys encrypts any channel keys still stored in
 // plaintext. Idempotent and batched so large deployments do not block startup.
-func MigrateLegacyChannelKeys() (int64, error) {
+// A channel whose save fails is logged and skipped (continue-on-error) so one
+// bad row cannot abort the whole migration; failed rows stay plaintext and are
+// retried on the next startup.
+func MigrateLegacyChannelKeys() (migrated int64, failed int64, err error) {
 	const batchSize = 100
-	var migrated int64
 	offset := 0
 	for {
 		var channels []*Channel
 		err := DB.Where("key <> '' AND key NOT LIKE ?", common.ChannelKeyCipherPrefix+"%").
 			Limit(batchSize).Offset(offset).Find(&channels).Error
 		if err != nil {
-			return migrated, err
+			return migrated, failed, err
 		}
 		if len(channels) == 0 {
-			return migrated, nil
+			return migrated, failed, nil
 		}
 		for _, channel := range channels {
 			if err := channel.Save(); err != nil {
-				return migrated, fmt.Errorf("migrate channel %d key: %w", channel.Id, err)
+				failed++
+				common.SysError(fmt.Sprintf("migrate channel %d key failed: %v", channel.Id, err))
+				continue
 			}
 			migrated++
 		}
 		if len(channels) < batchSize {
-			return migrated, nil
+			return migrated, failed, nil
 		}
 		offset += batchSize
 	}

@@ -76,6 +76,49 @@ func TestResolveChannelKeyMasterKeyFallbackChain(t *testing.T) {
 	require.Len(t, key, 32)
 }
 
+func TestResolveChannelKeyMasterKeyRejectsWrongLengthEnv(t *testing.T) {
+	// 33 字节 env 不满足 AES-256 要求：回退文件密钥，且不 panic
+	key := resolveChannelKeyMasterKey(strings.Repeat("e", 33), []byte(strings.Repeat("f", 32)))
+	require.Len(t, key, 32)
+	assert.Equal(t, strings.Repeat("f", 32), string(key))
+	// 40 字节 env（旧 >= 校验会放行、运行时 aes.NewCipher 必失败的场景）同样回退
+	key = resolveChannelKeyMasterKey(strings.Repeat("e", 40), []byte(strings.Repeat("f", 32)))
+	require.Len(t, key, 32)
+	assert.Equal(t, strings.Repeat("f", 32), string(key))
+	// 空 env + nil 文件 → 派生 32 字节
+	key = resolveChannelKeyMasterKey("", nil)
+	require.Len(t, key, 32)
+}
+
+func TestChannelKeyMasterKeyFileTrimsTrailingNewline(t *testing.T) {
+	old := channelKeyMasterKeyFile
+	channelKeyMasterKeyFile = filepath.Join(t.TempDir(), "master.key")
+	defer func() { channelKeyMasterKeyFile = old }()
+
+	// 手写备份文件常见形态：32 字节密钥 + 尾换行 → 返回 trim 后密钥
+	content := append([]byte(strings.Repeat("b", 32)), '\n')
+	require.NoError(t, os.WriteFile(channelKeyMasterKeyFile, content, 0o600))
+	key := loadOrCreateChannelKeyFile()
+	require.Len(t, key, 32)
+	assert.Equal(t, strings.Repeat("b", 32), string(key))
+	// 文件内容不被改写
+	data, err := os.ReadFile(channelKeyMasterKeyFile)
+	require.NoError(t, err)
+	assert.Equal(t, content, data)
+
+	// 恰好 32 字节（末字节为换行）必须原样使用，TrimSpace 不得破坏二进制密钥
+	raw := []byte(strings.Repeat("c", 31))
+	raw = append(raw, '\n')
+	require.NoError(t, os.WriteFile(channelKeyMasterKeyFile, raw, 0o600))
+	key = loadOrCreateChannelKeyFile()
+	assert.Equal(t, raw, key)
+
+	// 33 字节但 trim 后仍不为 32（如 33 字节纯内容）→ 重新生成 32 字节密钥
+	require.NoError(t, os.WriteFile(channelKeyMasterKeyFile, []byte(strings.Repeat("d", 33)), 0o600))
+	key = loadOrCreateChannelKeyFile()
+	require.Len(t, key, 32)
+}
+
 func TestChannelKeyMasterKeyFilePersisted(t *testing.T) {
 	old := channelKeyMasterKeyFile
 	channelKeyMasterKeyFile = filepath.Join(t.TempDir(), "master.key")

@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +16,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	// 固定主密钥来源，避免测试在源码树生成游离的 channel-key-master.key
+	os.Setenv("CHANNEL_KEY_MASTER_KEY", strings.Repeat("k", 32))
+
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		panic("failed to open test db: " + err.Error())

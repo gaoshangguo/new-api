@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -100,7 +101,7 @@ func TestKeyExpiresAtPersisted(t *testing.T) {
 
 func TestMigrateLegacyChannelKeys(t *testing.T) {
 	// 清场：迁移掉其他测试可能遗留的明文数据，保证断言确定性
-	_, _ = MigrateLegacyChannelKeys()
+	_, _, _ = MigrateLegacyChannelKeys()
 
 	plain1 := createEncryptionTestChannel(t, "sk-legacy-1")
 	plain2 := createEncryptionTestChannel(t, "sk-legacy-2")
@@ -108,14 +109,31 @@ func TestMigrateLegacyChannelKeys(t *testing.T) {
 	require.NoError(t, DB.Table("channels").Where("id = ?", plain1.Id).Update("key", "sk-legacy-1").Error)
 	require.NoError(t, DB.Table("channels").Where("id = ?", plain2.Id).Update("key", "sk-legacy-2").Error)
 
-	migrated, err := MigrateLegacyChannelKeys()
+	// 失败渠道：Save 的 UPDATE 被数据库层拒绝（触发器 RAISE ABORT），
+	// 验证 continue-on-error——该渠道被跳过并计数，不中断其余迁移。
+	// （channel_info 非法 JSON 无法用来构造 Save 失败：批量 Find 在 Scan
+	// 阶段即报错，走不到 Save。）
+	failCh := createEncryptionTestChannel(t, "sk-legacy-fail")
+	require.NoError(t, DB.Table("channels").Where("id = ?", failCh.Id).Update("key", "sk-legacy-fail").Error)
+	triggerSQL := fmt.Sprintf(`CREATE TRIGGER fail_channel_save BEFORE UPDATE ON channels
+WHEN OLD.id = %d AND NEW.key LIKE 'enc:v1:%%'
+BEGIN SELECT RAISE(ABORT, 'injected save failure'); END`, failCh.Id)
+	require.NoError(t, DB.Exec(triggerSQL).Error)
+	t.Cleanup(func() { DB.Exec("DROP TRIGGER IF EXISTS fail_channel_save") })
+
+	migrated, failed, err := MigrateLegacyChannelKeys()
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), migrated)
+	assert.Equal(t, int64(1), failed)
 
-	// 幂等：再次执行无新增
-	migrated, err = MigrateLegacyChannelKeys()
+	// 失败渠道保持明文
+	assert.Equal(t, "sk-legacy-fail", rawStoredChannelKey(t, failCh.Id))
+
+	// 幂等：再次执行仅重试失败渠道（迁移成功渠道无新增）
+	migrated, failed, err = MigrateLegacyChannelKeys()
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), migrated)
+	assert.Equal(t, int64(1), failed)
 
 	// 迁移后读取仍为明文
 	loaded1, err := GetChannelById(plain1.Id, true)

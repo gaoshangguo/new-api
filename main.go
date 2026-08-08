@@ -156,13 +156,13 @@ func main() {
 		if !common.IsMasterNode {
 			return
 		}
-		migrated, err := model.MigrateLegacyChannelKeys()
+		migrated, failed, err := model.MigrateLegacyChannelKeys()
 		if err != nil {
 			common.SysError(fmt.Sprintf("channel key migration failed: %v", err))
 			return
 		}
-		if migrated > 0 {
-			common.SysLog(fmt.Sprintf("migrated %d legacy channel keys to encrypted storage", migrated))
+		if migrated > 0 || failed > 0 {
+			common.SysLog(fmt.Sprintf("migrated %d legacy channel keys to encrypted storage, %d failed", migrated, failed))
 		}
 	}()
 

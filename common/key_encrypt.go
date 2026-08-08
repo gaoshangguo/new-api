@@ -32,10 +32,11 @@ var (
 )
 
 // ChannelKeyMasterKey returns the AES-256 key used to encrypt channel keys.
-// Resolution: CHANNEL_KEY_MASTER_KEY env (>=32 bytes) -> persisted master key
-// file (generated once on first start, survives restarts) -> sha256 derivation
-// as a last-resort fallback (warns). The file-based key keeps encrypted keys
-// decryptable across restarts even when no env var is configured.
+// Resolution: CHANNEL_KEY_MASTER_KEY env (exactly 32 bytes) -> persisted master
+// key file (generated once on first start, survives restarts) -> sha256
+// derivation as a last-resort fallback (warns). The file-based key keeps
+// encrypted keys decryptable across restarts even when no env var is
+// configured.
 func ChannelKeyMasterKey() []byte {
 	channelKeyMasterKeyOnce.Do(func() {
 		channelKeyMasterKey = resolveChannelKeyMasterKey(
@@ -43,18 +44,26 @@ func ChannelKeyMasterKey() []byte {
 			loadOrCreateChannelKeyFile(),
 		)
 		if os.Getenv("CHANNEL_KEY_MASTER_KEY") == "" {
-			SysError("CHANNEL_KEY_MASTER_KEY not set; using persisted or derived key. Set a dedicated >=32-byte key in production.")
+			SysError("CHANNEL_KEY_MASTER_KEY not set; using persisted or derived key. Set a dedicated exactly-32-byte key in production.")
 		}
 	})
 	return channelKeyMasterKey
 }
 
 // loadOrCreateChannelKeyFile reads the persisted master key file, generating a
-// fresh 32-byte key (0600) when it does not exist or is too short. Generation
-// failures return nil so the caller falls back to the derived key.
+// fresh 32-byte key (0600) when it does not exist or holds a wrong-length key.
+// Generation failures return nil so the caller falls back to the derived key.
 func loadOrCreateChannelKeyFile() []byte {
-	if data, err := os.ReadFile(channelKeyMasterKeyFile); err == nil && len(data) >= channelKeyMinKeyLen {
-		return data
+	if data, err := os.ReadFile(channelKeyMasterKeyFile); err == nil {
+		// 恰好 32 字节直接使用：随机二进制密钥的首尾字节可能恰为空白，
+		// TrimSpace 会破坏它，导致重启后所有已加密的渠道密钥不可解密。
+		if len(data) == channelKeyMinKeyLen {
+			return data
+		}
+		// 容忍手写备份文件带尾换行（32 字节密钥 + 换行）
+		if trimmed := strings.TrimSpace(string(data)); len(trimmed) == channelKeyMinKeyLen {
+			return []byte(trimmed)
+		}
 	}
 	key := make([]byte, channelKeyMinKeyLen)
 	if _, err := rand.Read(key); err != nil {
@@ -71,14 +80,15 @@ func loadOrCreateChannelKeyFile() []byte {
 
 // ChannelKeyPreviousMasterKey returns an optional legacy key used only for
 // decryption during a master-key rotation window. Read from env on every call
-// so tests and rotations can change it without restarting.
+// so tests and rotations can change it without restarting. aes.NewCipher only
+// accepts 16/24/32-byte keys, so only an exactly-32-byte value is honored.
 func ChannelKeyPreviousMasterKey() []byte {
 	value := os.Getenv("CHANNEL_KEY_MASTER_KEY_PREVIOUS")
-	if len(value) >= channelKeyMinKeyLen {
+	if len(value) == channelKeyMinKeyLen {
 		return []byte(value)
 	}
 	if value != "" {
-		SysError("CHANNEL_KEY_MASTER_KEY_PREVIOUS too short (<32 bytes); ignored")
+		SysError(fmt.Sprintf("CHANNEL_KEY_MASTER_KEY_PREVIOUS must be exactly 32 bytes (got %d); ignored", len(value)))
 	}
 	return nil
 }
@@ -86,8 +96,11 @@ func ChannelKeyPreviousMasterKey() []byte {
 // resolveChannelKeyMasterKey prefers an explicit env key, then the persisted
 // file key, then a deterministic derivation from the existing secrets.
 func resolveChannelKeyMasterKey(masterKeyEnv string, fileKey []byte) []byte {
-	if len(masterKeyEnv) >= channelKeyMinKeyLen {
+	if len(masterKeyEnv) == channelKeyMinKeyLen {
 		return []byte(masterKeyEnv)
+	}
+	if masterKeyEnv != "" {
+		SysError(fmt.Sprintf("CHANNEL_KEY_MASTER_KEY must be exactly 32 bytes (got %d); falling back to persisted/derived key", len(masterKeyEnv)))
 	}
 	if len(fileKey) >= channelKeyMinKeyLen {
 		return fileKey
