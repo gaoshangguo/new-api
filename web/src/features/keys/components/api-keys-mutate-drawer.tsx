@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, KeyRound, Settings2, WalletCards } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useForm, type SubmitErrorHandler } from 'react-hook-form'
+import { useForm, type Resolver, type SubmitErrorHandler } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -132,7 +132,7 @@ export function ApiKeysMutateDrawer({
   const schema = getApiKeyFormSchema(t)
 
   const form = useForm<ApiKeyFormValues>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(schema) as unknown as Resolver<ApiKeyFormValues>,
     defaultValues: getApiKeyFormDefaultValues(defaultUseAutoGroup),
   })
 
@@ -576,6 +576,147 @@ export function ApiKeysMutateDrawer({
                               'Do not over-trust this feature. IP may be spoofed. Please use with nginx, CDN and other gateways.'
                             )}
                           </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='daily_quota'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Daily Quota')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='number'
+                              min='0'
+                              onChange={(e) =>
+                                field.onChange(Number(e.target.value))
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('0 means unlimited')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='monthly_quota'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Monthly Quota')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='number'
+                              min='0'
+                              onChange={(e) =>
+                                field.onChange(Number(e.target.value))
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('0 means unlimited')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='max_concurrent_requests'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Max Concurrent Requests')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='number'
+                              min='0'
+                              onChange={(e) =>
+                                field.onChange(Number(e.target.value))
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('0 means unlimited')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='rate_limit_rpm'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Rate Limit RPM')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='number'
+                              min='0'
+                              onChange={(e) =>
+                                field.onChange(Number(e.target.value))
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('0 means unlimited')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='rate_limit_tpm'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Rate Limit TPM')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='number'
+                              min='0'
+                              onChange={(e) =>
+                                field.onChange(Number(e.target.value))
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('0 means unlimited')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='channel_limits'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Channel Limits')}</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              {...field}
+                              className='min-h-20 resize-none'
+                              rows={3}
+                              placeholder={t(
+                                'Token channel allowlist JSON, e.g. {"channels":[1,2]}'
+                              )}
+                            />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}

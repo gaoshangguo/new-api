@@ -44,6 +44,8 @@ export const channelSchema = z.object({
   status: z.number(), // 1: enabled, 0: manual disabled, 2: auto disabled
   name: z.string(),
   weight: z.number().nullish(),
+  rate_limit_rpm: z.number().optional(),
+  rate_limit_tpm: z.number().optional(),
   created_time: z.number(),
   test_time: z.number(),
   response_time: z.number(), // in milliseconds

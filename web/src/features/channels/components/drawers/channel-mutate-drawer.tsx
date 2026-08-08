@@ -3758,6 +3758,71 @@ export function ChannelMutateDrawer({
                             />
                           </div>
 
+                          <div className='flex flex-col gap-4 border-t pt-4'>
+                            <SubHeading
+                              title={t('Rate Limits')}
+                              icon={
+                                <SlidersHorizontal className='h-3.5 w-3.5' />
+                              }
+                              iconTone='info'
+                            />
+                            <div className='grid gap-4 sm:grid-cols-2'>
+                              <FormField
+                                control={form.control}
+                                name='rate_limit_rpm'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>
+                                      {t('Channel Rate Limit RPM')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min='0'
+                                        placeholder='0'
+                                        {...field}
+                                        onChange={(e) =>
+                                          field.onChange(Number(e.target.value))
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t('0 means unlimited')}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name='rate_limit_tpm'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>
+                                      {t('Channel Rate Limit TPM')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min='0'
+                                        placeholder='0'
+                                        {...field}
+                                        onChange={(e) =>
+                                          field.onChange(Number(e.target.value))
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t('0 means unlimited')}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                          </div>
+
                           <div
                             id={ADVANCED_SETTINGS_SECTION_IDS.internalNotes}
                             className={configuredAdvancedSectionClassName(
