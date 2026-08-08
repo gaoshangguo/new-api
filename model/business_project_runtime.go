@@ -61,6 +61,10 @@ type BusinessProjectRuntimePolicy struct {
 	RateLimitRPM int
 	RateLimitTPM int64
 
+	// MaxConcurrentRequests mirrors the project's concurrency limit so the
+	// relay concurrency gate can enforce it without a second lookup.
+	MaxConcurrentRequests int
+
 	modelLimitsConfigured   bool
 	channelLimitsConfigured bool
 	allowedModels           map[string]struct{}
@@ -157,7 +161,7 @@ func loadBusinessProjectRuntimePolicyForToken(db *gorm.DB, tokenID int, userID i
 
 	projectQuery := db.Select(
 		"id", "company_id", "owner_user_id", "budget_quota", "model_limits", "channel_limits", "status",
-		"rate_limit_rpm", "rate_limit_tpm",
+		"rate_limit_rpm", "rate_limit_tpm", "max_concurrent_requests",
 	).Where("id = ? AND owner_user_id = ?", token.ProjectId, token.UserId)
 	if lock {
 		projectQuery = lockForUpdate(projectQuery)
@@ -191,6 +195,7 @@ func loadBusinessProjectRuntimePolicyForToken(db *gorm.DB, tokenID int, userID i
 		BudgetQuota:             project.BudgetQuota,
 		RateLimitRPM:            project.RateLimitRPM,
 		RateLimitTPM:            project.RateLimitTPM,
+		MaxConcurrentRequests:   project.MaxConcurrentRequests,
 		modelLimitsConfigured:   modelConfigured,
 		channelLimitsConfigured: channelConfigured,
 		allowedModels:           allowedModels,

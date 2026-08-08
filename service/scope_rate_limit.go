@@ -22,6 +22,10 @@ const scopeRateLimitWindowSeconds = 60
 type ScopeRateLimit struct {
 	RPM int   // 0 = unlimited
 	TPM int64 // 0 = unlimited
+
+	// MaxConcurrentRequests mirrors the scope's concurrency limit so the relay
+	// concurrency gate can read it through the same cached lookup.
+	MaxConcurrentRequests int // 0 = unlimited
 }
 
 // memoryRateLimitWindow is the Redis-unavailable fallback: per-key counters
@@ -283,7 +287,7 @@ func LoadCompanyLimitsByOwner(ctx context.Context, ownerUserID int) (ScopeRateLi
 		}
 		return ScopeRateLimit{}, err
 	}
-	cfg := ScopeRateLimit{RPM: company.RateLimitRPM, TPM: company.RateLimitTPM}
+	cfg := ScopeRateLimit{RPM: company.RateLimitRPM, TPM: company.RateLimitTPM, MaxConcurrentRequests: company.MaxConcurrentRequests}
 	companyLimitsCache.Set(ownerUserID, cfg)
 	return cfg, nil
 }

@@ -530,6 +530,20 @@ func RelayTask(c *gin.Context) {
 		return
 	}
 
+	// 任务提交路径接入分层限流（企业→项目→Key→模型）与并发闸门（P0-11 验收
+	// 缺口：RelayTask 原先绕过全部限流层）。estimatedTokens=0 跳过 TPM 检查；
+	// 429 映射与同步路径一致。置于预扣费与上游提交之前，限流请求不消耗额度。
+	if err := service.EnforceRelayScopeRateLimits(c, relayInfo.OriginModelName, 0); err != nil {
+		respondTaskError(c, service.TaskErrorWrapperLocal(err, "rate_limit_exceeded", http.StatusTooManyRequests))
+		return
+	}
+	releaseConcurrency, err := service.AcquireRelayConcurrency(c)
+	if err != nil {
+		respondTaskError(c, service.TaskErrorWrapperLocal(err, "concurrency_limit_exceeded", http.StatusTooManyRequests))
+		return
+	}
+	defer releaseConcurrency()
+
 	var result *relay.TaskSubmitResult
 	var taskErr *taskdto.TaskError
 	defer func() {
