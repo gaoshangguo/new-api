@@ -25,6 +25,8 @@ type Channel struct {
 	Type               int     `json:"type" gorm:"default:0"`
 	Key                string  `json:"key" gorm:"not null"`
 	KeyExpiresAt       int64   `json:"key_expires_at" gorm:"bigint"` // 密钥到期时间（unix 秒）；0 表示永不过期
+	RateLimitRPM       int     `json:"rate_limit_rpm"`               // 渠道级每分钟请求数（0=不限）
+	RateLimitTPM       int64   `json:"rate_limit_tpm" gorm:"bigint"` // 渠道级每分钟 token 预估（0=不限）
 	OpenAIOrganization *string `json:"openai_organization"`
 	TestModel          *string `json:"test_model"`
 	Status             int     `json:"status" gorm:"default:1"`
