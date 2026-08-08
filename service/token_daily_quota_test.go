@@ -2,11 +2,16 @@ package service
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
-	_ "github.com/QuantumNous/new-api/common" // 简报要求 imports 含 common；测试代码未直接引用，故空导入
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/types"
+
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,4 +75,70 @@ func TestGetTokenUsedQuotaSinceWindowBoundary(t *testing.T) {
 	used, err := getTokenUsedQuotaSince(tokenID, dayStart)
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), used)
+}
+
+// TestPreConsumeBillingTokenDailyQuotaExceededMapsTo429 verifies the
+// pre-consume hot path translates a token daily-budget exceedance into
+// HTTP 429 (rate-limit semantics) instead of the default 403.
+func TestPreConsumeBillingTokenDailyQuotaExceededMapsTo429(t *testing.T) {
+	truncate(t)
+	gin.SetMode(gin.TestMode)
+	require.NoError(t, model.DB.AutoMigrate(&model.Log{}, &model.Token{}, &model.User{}))
+	dayStart, _ := calendarWindowStarts(t)
+
+	user := &model.User{Id: 9088, Username: "budget-429-user", Quota: 1000000, Status: common.UserStatusEnabled}
+	require.NoError(t, model.DB.Create(user).Error)
+	token := &model.Token{
+		Id: 9089, UserId: user.Id, Key: "budget-429-key", Name: "budget-429-token",
+		Status: common.TokenStatusEnabled, RemainQuota: 100000, DailyQuota: 1,
+	}
+	require.NoError(t, model.DB.Create(token).Error)
+	seedConsumeLogs(t, token.Id, dayStart, 100) // 今日已用 100 >= 日预算 1
+
+	c, _ := gin.CreateTestContext(nil)
+	info := &relaycommon.RelayInfo{
+		UserId:         user.Id,
+		TokenId:        token.Id,
+		TokenKey:       token.Key,
+		TokenUnlimited: false,
+	}
+
+	apiErr := PreConsumeBilling(c, 2000, info)
+
+	require.NotNil(t, apiErr)
+	require.Equal(t, types.ErrorCodePreConsumeTokenQuotaFailed, apiErr.GetErrorCode())
+	require.Equal(t, http.StatusTooManyRequests, apiErr.StatusCode)
+	require.ErrorIs(t, apiErr, errTokenDailyQuotaExceeded)
+	require.Nil(t, info.Billing)
+}
+
+// TestPreConsumeBillingInsufficientTokenQuotaStays403 verifies that errors
+// other than budget exceedance keep the original 403 mapping, so the 429
+// branch does not over-match unrelated pre-consume failures.
+func TestPreConsumeBillingInsufficientTokenQuotaStays403(t *testing.T) {
+	truncate(t)
+	gin.SetMode(gin.TestMode)
+	require.NoError(t, model.DB.AutoMigrate(&model.Log{}, &model.Token{}, &model.User{}))
+
+	user := &model.User{Id: 9098, Username: "budget-403-user", Quota: 1000000, Status: common.UserStatusEnabled}
+	require.NoError(t, model.DB.Create(user).Error)
+	token := &model.Token{
+		Id: 9099, UserId: user.Id, Key: "budget-403-key", Name: "budget-403-token",
+		Status: common.TokenStatusEnabled, RemainQuota: 100, // 日/月预算不限（0），但余额不足
+	}
+	require.NoError(t, model.DB.Create(token).Error)
+
+	c, _ := gin.CreateTestContext(nil)
+	info := &relaycommon.RelayInfo{
+		UserId:         user.Id,
+		TokenId:        token.Id,
+		TokenKey:       token.Key,
+		TokenUnlimited: false,
+	}
+
+	apiErr := PreConsumeBilling(c, 2000, info)
+
+	require.NotNil(t, apiErr)
+	require.Equal(t, types.ErrorCodePreConsumeTokenQuotaFailed, apiErr.GetErrorCode())
+	require.Equal(t, http.StatusForbidden, apiErr.StatusCode)
 }
