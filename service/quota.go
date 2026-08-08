@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -396,6 +397,9 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 	//}
 	token, err := model.GetTokenByKey(relayInfo.TokenKey, false)
 	if err != nil {
+		return err
+	}
+	if err := CheckTokenDailyMonthlyQuota(context.Background(), token.Id, token.DailyQuota, token.MonthlyQuota); err != nil {
 		return err
 	}
 	if !relayInfo.TokenUnlimited && token.RemainQuota < quota {
