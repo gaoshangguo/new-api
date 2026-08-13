@@ -60,6 +60,8 @@ import {
   useApiInfo,
   useDashboardContentVisibility,
 } from '../../hooks/use-status-data'
+import { AccountHealthPanel } from './account-health-panel'
+import { EnterpriseProfilePanel } from './enterprise-profile-panel'
 import { AnnouncementsPanel } from './announcements-panel'
 import { ApiInfoPanel } from './api-info-panel'
 import { FAQPanel } from './faq-panel'
@@ -768,6 +770,16 @@ export function OverviewDashboard() {
                   'lg:grid-cols-2'
               )}
             >
+              {!isAdmin && (
+                <CardStaggerItem className='lg:col-span-2'>
+                  <AccountHealthPanel />
+                </CardStaggerItem>
+              )}
+              {!isAdmin && (
+                <CardStaggerItem className='lg:col-span-2'>
+                  <EnterpriseProfilePanel />
+                </CardStaggerItem>
+              )}
               {isAdmin && (
                 <CardStaggerItem className='lg:col-span-2'>
                   <PerformanceHealthPanel />

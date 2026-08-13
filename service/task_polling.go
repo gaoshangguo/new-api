@@ -85,6 +85,11 @@ func sweepTimedOutTasks(ctx context.Context) {
 		if !isLegacy && task.Quota != 0 {
 			RefundTaskQuota(ctx, task, reason)
 		}
+		// P0-09 客户回调：任务在此路径刚到达终态（失败/超时），异步投递，
+		// 退款先完成以保证负载中的 quota 为最终值。
+		if task.PrivateData.CallbackUrl != "" {
+			DeliverTaskCallbackAsync(ctx, task.PrivateData.CallbackUrl, task.PrivateData.CallbackSecret, BuildTaskCallbackPayload(task))
+		}
 	}
 
 	if timedOutCount > 0 {
@@ -303,8 +308,16 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 			logger.LogError(ctx, fmt.Sprintf("UpdateSunoTask task %s error: %v", task.TaskID, err))
 		} else if !won {
 			logger.LogWarn(ctx, fmt.Sprintf("Task %s CAS lost or no-op update, skip billing", task.TaskID))
-		} else if isFailure && prevStatus != model.TaskStatusFailure && task.Quota != 0 {
-			RefundTaskQuota(ctx, task, task.FailReason)
+		} else {
+			if isFailure && prevStatus != model.TaskStatusFailure && task.Quota != 0 {
+				RefundTaskQuota(ctx, task, task.FailReason)
+			}
+			// P0-09 客户回调：任务刚到达终态（成功/失败）时异步投递，
+			// 退款先完成以保证负载中的 quota 为最终值。
+			isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
+			if isDone && prevStatus != task.Status && task.PrivateData.CallbackUrl != "" {
+				DeliverTaskCallbackAsync(ctx, task.PrivateData.CallbackUrl, task.PrivateData.CallbackSecret, BuildTaskCallbackPayload(task))
+			}
 		}
 	}
 	return nil
@@ -571,6 +584,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
+	transitioned := false
 	if isDone && snap.Status != task.Status {
 		won, err := task.UpdateWithStatus(snap.Status)
 		if err != nil {
@@ -581,6 +595,8 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			logger.LogWarn(ctx, fmt.Sprintf("Task %s CAS lost or no-op update, skip billing", task.TaskID))
 			shouldRefund = false
 			shouldSettle = false
+		} else {
+			transitioned = true
 		}
 	} else if !snap.Equal(task.Snapshot()) {
 		if _, err := task.UpdateWithStatus(snap.Status); err != nil {
@@ -596,6 +612,12 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 	if shouldRefund {
 		RefundTaskQuota(ctx, task, task.FailReason)
+	}
+
+	// P0-09 客户级任务回调：任务刚到达终态且配置了 callback_url 时，
+	// 后台异步投递（含签名与重试），不阻塞轮询循环、不影响计费结果。
+	if transitioned && task.PrivateData.CallbackUrl != "" {
+		DeliverTaskCallbackAsync(ctx, task.PrivateData.CallbackUrl, task.PrivateData.CallbackSecret, BuildTaskCallbackPayload(task))
 	}
 
 	return nil

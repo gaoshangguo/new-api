@@ -50,6 +50,13 @@ func initCol() {
 	}
 }
 
+// Keep portable reserved-column names valid even in focused package tests or
+// maintenance tools that access model helpers before full database startup.
+// InitDB calls initCol again after the configured database dialect is known.
+func init() {
+	initCol()
+}
+
 var DB *gorm.DB
 
 var LOG_DB *gorm.DB
@@ -292,8 +299,17 @@ func migrateDB() error {
 		&SystemTaskLock{},
 		&CasbinRule{},
 		&AuthzRole{},
+		&Company{}, &BusinessProject{}, &CustomerAssignment{}, &SalesAccountProfile{}, &BalanceLedger{}, &BusinessConsumption{}, &BusinessProjectBudgetReservation{}, &BusinessProjectReminder{}, &ManualCreditRequest{}, &BusinessAuditEvent{}, &BusinessAnnouncement{}, &BusinessFollowUp{}, &PriceVersion{}, &ModelAlias{}, &PlatformAlertRule{}, &PlatformAlertEvent{},
 	)
 	if err != nil {
+		return err
+	}
+	if DB.Migrator().HasIndex(&ManualCreditRequest{}, "idx_manual_credit_external_amount") {
+		if err := DB.Migrator().DropIndex(&ManualCreditRequest{}, "idx_manual_credit_external_amount"); err != nil {
+			return err
+		}
+	}
+	if err := DB.Migrator().CreateIndex(&ManualCreditRequest{}, "idx_manual_credit_external_amount"); err != nil {
 		return err
 	}
 	if err := InitializeUserAuthVersions(); err != nil {
@@ -353,6 +369,7 @@ func migrateDBFast() error {
 		{&SystemInstance{}, "SystemInstance"},
 		{&SystemTask{}, "SystemTask"},
 		{&SystemTaskLock{}, "SystemTaskLock"},
+		{&Company{}, "Company"}, {&BusinessProject{}, "BusinessProject"}, {&CustomerAssignment{}, "CustomerAssignment"}, {&SalesAccountProfile{}, "SalesAccountProfile"}, {&BalanceLedger{}, "BalanceLedger"}, {&BusinessConsumption{}, "BusinessConsumption"}, {&BusinessProjectBudgetReservation{}, "BusinessProjectBudgetReservation"}, {&BusinessProjectReminder{}, "BusinessProjectReminder"}, {&ManualCreditRequest{}, "ManualCreditRequest"}, {&BusinessAuditEvent{}, "BusinessAuditEvent"}, {&BusinessAnnouncement{}, "BusinessAnnouncement"}, {&BusinessFollowUp{}, "BusinessFollowUp"}, {&PriceVersion{}, "PriceVersion"}, {&ModelAlias{}, "ModelAlias"}, {&PlatformAlertRule{}, "PlatformAlertRule"}, {&PlatformAlertEvent{}, "PlatformAlertEvent"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
@@ -579,7 +596,7 @@ PRIMARY KEY (` + "`id`" + `)
 // migrateTokenModelLimitsToText migrates model_limits column from varchar(1024) to text
 // This is safe to run multiple times - it checks the column type first
 func migrateTokenModelLimitsToText() error {
-	// SQLite uses type affinity, so TEXT and VARCHAR are effectively the same — no migration needed
+	// SQLite uses type affinity, so TEXT and VARCHAR are effectively the same 鈥?no migration needed
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		return nil
 	}
@@ -797,7 +814,7 @@ func checkMySQLChineseSupport(db *gorm.DB) error {
 			maxShow, shown, maxShow, shown,
 		)
 	}
-	return nil
+		return nil
 }
 
 var (

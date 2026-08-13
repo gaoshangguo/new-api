@@ -91,6 +91,7 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	if relayInfo.UsePrice {
 		return nil
 	}
+	relayInfo.PriceData.PriceVersionId = model.GetCurrentPriceVersionId()
 	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
 	if err != nil {
 		return err
@@ -148,12 +149,12 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 		return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
 	}
 
-	// Realtime websocket sessions pre-charge each response segment before the
-	// session closes; the segments are financial pre-consumes consolidated into
-	// the single final settlement in PostWssConsumeQuota. The day/month budget
-	// counter must mirror the final consumption only, so per-segment charges
-	// pass recordProjectConsumption=false and the counter is bumped exactly
-	// once by the final settle (see BillingSession.bumpBudgetCounter).
+	// Realtime requests can pre-charge multiple response segments before the
+	// websocket closes. Those increments are financial pre-consumes, not final
+	// project usage: recording them under the request ID here would make the
+	// final aggregate log idempotently disappear. Keep their total for the
+	// final settlement instead, then record the one final aggregate quota in
+	// PostWssConsumeQuota.
 	updatedPreConsumedQuota := int64(relayInfo.FinalPreConsumedQuota) + int64(quota)
 	if updatedPreConsumedQuota < 0 || updatedPreConsumedQuota > int64(common.MaxQuota) {
 		return fmt.Errorf("realtime pre-consumed quota total is out of range: %d", updatedPreConsumedQuota)
@@ -267,6 +268,7 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		IsStream:         relayInfo.IsStream,
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
+		PriceVersionId:   relayInfo.PriceData.PriceVersionId,
 	})
 }
 
@@ -390,6 +392,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		IsStream:         relayInfo.IsStream,
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
+		PriceVersionId:   relayInfo.PriceData.PriceVersionId,
 	})
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(usage.CompletionTokens))
@@ -427,11 +430,10 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 	return postConsumeQuota(relayInfo, quota, preConsumedQuota, sendEmail, true)
 }
 
-// postConsumeQuota updates the financial balances for a direct charge.
-// Realtime websocket sessions make several incremental pre-charges before
-// their final aggregate usage is known; those callers set
-// recordProjectConsumption to false so the final settlement is the sole
-// day/month budget counter increment.
+// postConsumeQuota updates the financial balances for a direct charge. A
+// realtime websocket may make several incremental pre-charges before its
+// final aggregate usage is known; those callers set recordProjectConsumption
+// to false so the final aggregate is the sole project-consumption projection.
 func postConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool, recordProjectConsumption bool) (err error) {
 
 	// 1) Consume from wallet quota OR subscription item
@@ -479,6 +481,44 @@ func postConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 			} else {
 				bumpTokenBudgetUsed(context.Background(), token.Id, int64(quota)+int64(preConsumedQuota), token.DailyQuota, token.MonthlyQuota)
 			}
+		}
+	}
+
+	// Several legacy/direct paths (for example realtime, Midjourney, and a
+	// violation fee) use PostConsumeQuota without a BillingSession pre-consume.
+	// Record their positive project use here as well. For a capped project this
+	// becomes an explicit over-budget reconciliation marker unless an existing
+	// request hold proves the charge was covered; future project requests then
+	// fail closed instead of silently treating this post-charge path as normal.
+	// The charge has already succeeded, so logging/reconciliation failure must
+	// not reverse its established wallet/token accounting contract.
+	if recordProjectConsumption && quota > 0 && relayInfo.TokenId > 0 && relayInfo.UserId > 0 {
+		projectConsumptionQuota := quota
+		// The legacy SettleBilling fallback passes a positive delta together
+		// with an already pre-consumed amount. Store the full actual charge so
+		// this early idempotent projection cannot suppress the later full log
+		// with a smaller delta.
+		if preConsumedQuota > 0 {
+			if quota > common.MaxQuota-preConsumedQuota {
+				projectConsumptionQuota = common.MaxQuota
+				common.SysError("direct project consumption quota saturated while combining pre-consume and settlement delta")
+			} else {
+				projectConsumptionQuota += preConsumedQuota
+			}
+		}
+		if relayInfo.RequestId == "" {
+			relayInfo.RequestId = common.NewRequestId()
+		}
+		if recordErr := model.RecordBusinessConsumption(model.RecordBusinessConsumptionParams{
+			RequestId:      relayInfo.RequestId,
+			UserId:         relayInfo.UserId,
+			TokenId:        relayInfo.TokenId,
+			Quota:          projectConsumptionQuota,
+			ChannelId:      relayInfo.ChannelId,
+			ModelName:      relayInfo.OriginModelName,
+			PriceVersionId: relayInfo.PriceData.PriceVersionId,
+		}); recordErr != nil {
+			common.SysError("failed to record direct project consumption: " + recordErr.Error())
 		}
 	}
 

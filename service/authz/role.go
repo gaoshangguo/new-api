@@ -1,8 +1,13 @@
 package authz
 
 const (
-	BuiltInRoleRoot  = "root"
-	BuiltInRoleAdmin = "admin"
+	BuiltInRoleRoot              = "root"
+	BuiltInRoleAdmin             = "admin"
+	BusinessRolePlatformManager  = "platform_manager"
+	BusinessRoleFinanceEntry     = "finance_entry"
+	BusinessRoleFinanceApprover  = "finance_approver"
+	BusinessRoleSalesSupervisor  = "sales_supervisor"
+	BusinessRoleOperationsReader = "operations_reader"
 )
 
 // RoleSpec describes a role. A superuser role is allowed every permission
@@ -32,6 +37,46 @@ var builtInRoles = []RoleSpec{
 		BuiltIn:     true,
 		Superuser:   false,
 		Sort:        10,
+	},
+	{
+		Key:         BusinessRolePlatformManager,
+		Name:        "Platform manager",
+		Description: "Manage enterprise customers, projects, assignments, and platform operations",
+		BuiltIn:     true,
+		Superuser:   false,
+		Sort:        20,
+	},
+	{
+		Key:         BusinessRoleFinanceEntry,
+		Name:        "Finance entry",
+		Description: "Create and review manual credit requests without approval authority",
+		BuiltIn:     true,
+		Superuser:   false,
+		Sort:        30,
+	},
+	{
+		Key:         BusinessRoleFinanceApprover,
+		Name:        "Finance approver",
+		Description: "Approve or reject manual credit requests without entry authority",
+		BuiltIn:     true,
+		Superuser:   false,
+		Sort:        40,
+	},
+	{
+		Key:         BusinessRoleSalesSupervisor,
+		Name:        "Sales supervisor",
+		Description: "Manage customer ownership and view assigned customer operations",
+		BuiltIn:     true,
+		Superuser:   false,
+		Sort:        50,
+	},
+	{
+		Key:         BusinessRoleOperationsReader,
+		Name:        "Operations reader",
+		Description: "Read global operations reports, health, and audit information",
+		BuiltIn:     true,
+		Superuser:   false,
+		Sort:        60,
 	},
 }
 
@@ -83,4 +128,17 @@ func roleSpec(roleKey string) (RoleSpec, bool) {
 func isSuperuserRole(roleKey string) bool {
 	spec, ok := roleSpec(roleKey)
 	return ok && spec.Superuser
+}
+
+func isBusinessRole(roleKey string) bool {
+	switch roleKey {
+	case BusinessRolePlatformManager,
+		BusinessRoleFinanceEntry,
+		BusinessRoleFinanceApprover,
+		BusinessRoleSalesSupervisor,
+		BusinessRoleOperationsReader:
+		return true
+	default:
+		return false
+	}
 }

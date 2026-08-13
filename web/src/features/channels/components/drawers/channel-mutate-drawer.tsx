@@ -3101,6 +3101,28 @@ export function ChannelMutateDrawer({
                                 )}
                               />
 
+                              <FormField
+                                control={form.control}
+                                name='region'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>{t('Region')}</FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        placeholder={t('e.g. cn-east, us-west')}
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'Requests with a matching X-API-Region header prefer this channel. Leave empty for the default routing.'
+                                      )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
                               {currentType === 57 && (
                                 <div className='border-border/60 flex flex-col gap-3 border-y py-4'>
                                   <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>

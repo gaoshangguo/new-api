@@ -53,9 +53,39 @@ func (s *BillingSession) Settle(actualQuota int) error {
 		s.bumpBudgetCounter(actualQuota)
 		return nil
 	}
+	projectReservationAddition := 0
+	if delta > 0 {
+		// The upstream result can exceed its original pre-consume estimate.
+		// Raise the already-created project hold before charging the additional
+		// funding/token quota. For trusted sessions the initial project hold may
+		// be larger than s.preConsumedQuota, so ensure the final target rather
+		// than blindly adding delta.
+		added, err := model.EnsureBusinessProjectBudgetReservation(
+			s.relayInfo.TokenId,
+			s.relayInfo.UserId,
+			s.relayInfo.RequestId,
+			actualQuota,
+		)
+		if err != nil {
+			if errors.Is(err, model.ErrBusinessProjectDisabled) ||
+				errors.Is(err, model.ErrBusinessProjectTokenBinding) ||
+				errors.Is(err, model.ErrBusinessProjectLimitConfiguration) ||
+				errors.Is(err, model.ErrBusinessProjectBudgetExceeded) ||
+				errors.Is(err, model.ErrBusinessProjectBudgetEstimate) {
+				return types.NewErrorWithStatusCode(err, types.ErrorCodeAccessDenied, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			}
+			return types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+		}
+		projectReservationAddition = added
+	}
 	// 1) 调整资金来源（仅在尚未提交时执行，防止重复调用）
 	if !s.fundingSettled {
 		if err := s.funding.Settle(delta); err != nil {
+			if projectReservationAddition > 0 {
+				if rollbackErr := model.RollbackBusinessProjectBudgetReservationExpansion(s.relayInfo.TokenId, s.relayInfo.UserId, s.relayInfo.RequestId, projectReservationAddition); rollbackErr != nil {
+					common.SysError("error rolling back project budget reservation after settlement funding failure: " + rollbackErr.Error())
+				}
+			}
 			return err
 		}
 		s.fundingSettled = true
@@ -120,6 +150,8 @@ func (s *BillingSession) Refund(c *gin.Context) {
 	// 复制需要的值到闭包中
 	tokenId := s.relayInfo.TokenId
 	tokenKey := s.relayInfo.TokenKey
+	requestID := s.relayInfo.RequestId
+	userID := s.relayInfo.UserId
 	isPlayground := s.relayInfo.IsPlayground
 	tokenConsumed := s.tokenConsumed
 	extraReserved := s.extraReserved
@@ -127,6 +159,9 @@ func (s *BillingSession) Refund(c *gin.Context) {
 	funding := s.funding
 
 	gopool.Go(func() {
+		if err := model.ReleaseBusinessProjectBudgetReservation(tokenId, userID, requestID); err != nil {
+			common.SysError(fmt.Sprintf("error releasing project budget reservation (userId=%d, tokenId=%d, requestId=%s): %s", userID, tokenId, requestID, err.Error()))
+		}
 		// 1) 退还资金来源
 		if err := funding.Refund(); err != nil {
 			common.SysLog("error refunding billing source: " + err.Error())
@@ -184,12 +219,28 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 	if delta <= 0 {
 		return nil
 	}
+	if err := model.ExpandBusinessProjectBudgetReservation(s.relayInfo.TokenId, s.relayInfo.UserId, s.relayInfo.RequestId, delta); err != nil {
+		if errors.Is(err, model.ErrBusinessProjectDisabled) ||
+			errors.Is(err, model.ErrBusinessProjectTokenBinding) ||
+			errors.Is(err, model.ErrBusinessProjectLimitConfiguration) ||
+			errors.Is(err, model.ErrBusinessProjectBudgetExceeded) ||
+			errors.Is(err, model.ErrBusinessProjectBudgetEstimate) {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeAccessDenied, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
+		return types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+	}
 
 	if err := s.reserveFunding(delta); err != nil {
+		if rollbackErr := model.RollbackBusinessProjectBudgetReservationExpansion(s.relayInfo.TokenId, s.relayInfo.UserId, s.relayInfo.RequestId, delta); rollbackErr != nil {
+			common.SysError("error rolling back project budget reservation after funding reserve failure: " + rollbackErr.Error())
+		}
 		return err
 	}
 	if err := s.reserveToken(delta); err != nil {
 		s.rollbackFundingReserve(delta)
+		if rollbackErr := model.RollbackBusinessProjectBudgetReservationExpansion(s.relayInfo.TokenId, s.relayInfo.UserId, s.relayInfo.RequestId, delta); rollbackErr != nil {
+			common.SysError("error rolling back project budget reservation after token reserve failure: " + rollbackErr.Error())
+		}
 		return err
 	}
 

@@ -30,6 +30,9 @@ type PriceData struct {
 	Quota                int // 按次计费的最终额度（MJ / Task）
 	QuotaToPreConsume    int // 按量计费的预消耗额度
 	GroupRatioInfo       GroupRatioInfo
+	// PriceVersionId 是预扣费时刻生效的价格版本（P0-28）。结算与日志以它为
+	// 锚点解释账单，改价后历史账单不随新版本变化。
+	PriceVersionId int
 }
 
 func (p *PriceData) AddOtherRatio(key string, ratio float64) {

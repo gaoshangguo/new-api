@@ -1,11 +1,13 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -159,7 +161,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// rate-limited request never consumes quota.
 	estimatedTokens := int64(common.GetContextKeyInt(c, constant.ContextKeyEstimatedTokens))
 	if err := service.EnforceRelayScopeRateLimits(c, relayInfo.OriginModelName, estimatedTokens); err != nil {
-		newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeAccessDenied, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeRateLimitExceeded, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		return
 	}
 
@@ -169,7 +171,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// (deferred release) for the whole request lifetime including retries.
 	releaseConcurrency, err := service.AcquireRelayConcurrency(c)
 	if err != nil {
-		newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeAccessDenied, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeRateLimitExceeded, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		return
 	}
 	defer releaseConcurrency()
@@ -211,6 +213,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
+	// P0-15 结构化路由轨迹：初始化请求轨迹（候选/尝试/最终渠道）。
+	model.InitRoutingTrace(c)
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
@@ -225,7 +229,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// Channel-level rate limit (RPM/TPM) after channel selection and before
 		// the request is relayed upstream.
 		if err := service.EnforceChannelRateLimit(c, channel.Id, channel.RateLimitRPM, channel.RateLimitTPM, estimatedTokens); err != nil {
-			newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeAccessDenied, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeRateLimitExceeded, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 			break
 		}
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
@@ -250,14 +254,28 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		default:
 			newAPIError = relayHandler(c, relayInfo)
 		}
+		// P0-12 错误码契约：上游渠道请求超时（context deadline exceeded）映射为
+		// 独立错误码 channel:response_time_exceeded + 504，客户端可程序化区分
+		// 「渠道超时」与「渠道失败」。
+		if newAPIError != nil && isUpstreamTimeoutError(newAPIError) {
+			newAPIError = types.NewErrorWithStatusCode(newAPIError.Err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusGatewayTimeout, types.ErrOptionWithSkipRetry())
+		}
 
 		if newAPIError == nil {
 			relayInfo.LastError = nil
+			// P0-14 成功率维度：记录本次渠道调用结果。
+			model.RecordChannelOutcome(channel.Id, true)
+			// P0-15 结构化路由轨迹：标记最终成功渠道。
+			model.MarkRoutingFinal(c, channel.Id, true)
 			return
 		}
 
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		relayInfo.LastError = newAPIError
+		// P0-14 成功率维度：记录本次渠道调用结果。
+		model.RecordChannelOutcome(channel.Id, false)
+		// P0-15 结构化路由轨迹：记录本次尝试的渠道与失败原因（脱敏）。
+		model.RecordRoutingAttempt(c, channel.Id, string(newAPIError.GetErrorCode()), common.LocalLogPreview(newAPIError.Error()))
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
@@ -276,6 +294,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
 	}
+	// P0-15 结构化路由轨迹：失败请求同样输出结构化轨迹（候选/尝试/最终渠道），
+	// 便于运营与客户按权限定位问题发生在哪一层。
+	if trace := model.GetRoutingTrace(c); trace != nil && len(trace.Attempts) > 0 {
+		if trace.FinalChannel == 0 {
+			model.MarkRoutingFinal(c, trace.Attempts[len(trace.Attempts)-1].ChannelId, false)
+		}
+		traceJSON, _ := common.Marshal(model.GetRoutingTrace(c))
+		logger.LogWarn(c, fmt.Sprintf("routing trace: %s", string(traceJSON)))
+	}
 }
 
 var upgrader = websocket.Upgrader{
@@ -289,6 +316,16 @@ func addUsedChannel(c *gin.Context, channelId int) {
 	useChannel := c.GetStringSlice("use_channel")
 	useChannel = append(useChannel, fmt.Sprintf("%d", channelId))
 	c.Set("use_channel", useChannel)
+}
+
+// isUpstreamTimeoutError reports whether a relay error's root cause is an
+// upstream request timeout (client timeout or context deadline exceeded).
+func isUpstreamTimeoutError(newAPIError *types.NewAPIError) bool {
+	if newAPIError == nil || newAPIError.Err == nil {
+		return false
+	}
+	return errors.Is(newAPIError.Err, context.DeadlineExceeded) ||
+		errors.Is(newAPIError.Err, os.ErrDeadlineExceeded)
 }
 
 func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
@@ -582,6 +619,14 @@ func RelayTask(c *gin.Context) {
 		return
 	}
 
+	// P0-09 客户级任务回调：从请求头解析回调配置（X-New-Api-Callback-Url /
+	// X-New-Api-Callback-Secret），URL 经 SSRF 校验，失败直接 400。
+	callbackURL, callbackSecret, callbackErr := service.ParseTaskCallbackHeaders(c)
+	if callbackErr != nil {
+		respondTaskError(c, service.TaskErrorWrapperLocal(callbackErr, "invalid_callback_url", http.StatusBadRequest))
+		return
+	}
+
 	// 任务提交路径接入分层限流（企业→项目→Key→模型）与并发闸门（P0-11 验收
 	// 缺口：RelayTask 原先绕过全部限流层）。estimatedTokens=0 跳过 TPM 检查；
 	// 429 映射与同步路径一致。置于预扣费与上游提交之前，限流请求不消耗额度。
@@ -611,6 +656,8 @@ func RelayTask(c *gin.Context) {
 		RequestPath: c.Request.URL.Path,
 		Retry:       common.GetPointer(0),
 	}
+	// P0-15 结构化路由轨迹：任务提交路径同样记录候选/尝试/最终渠道。
+	model.InitRoutingTrace(c)
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		var channel *model.Channel
@@ -647,8 +694,15 @@ func RelayTask(c *gin.Context) {
 
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
 		if taskErr == nil {
+			// P0-15 结构化路由轨迹：任务提交成功。
+			model.RecordChannelOutcome(channel.Id, true)
+			model.MarkRoutingFinal(c, channel.Id, true)
 			break
 		}
+
+		// P0-14/P0-15：记录尝试失败（脱敏原因）与渠道结果。
+		model.RecordChannelOutcome(channel.Id, false)
+		model.RecordRoutingAttempt(c, channel.Id, fmt.Sprintf("task:%d", taskErr.StatusCode), common.LocalLogPreview(taskErr.Error.Error()))
 
 		if !taskErr.LocalError {
 			processChannelError(c,
@@ -659,6 +713,13 @@ func RelayTask(c *gin.Context) {
 
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 			break
+		}
+	}
+
+	// P0-15 结构化路由轨迹：全部尝试失败时标记最终（失败）渠道。
+	if taskErr != nil && model.GetRoutingTrace(c) != nil && model.GetRoutingTrace(c).FinalChannel == 0 {
+		if lastAttempts := model.GetRoutingTrace(c).Attempts; len(lastAttempts) > 0 {
+			model.MarkRoutingFinal(c, lastAttempts[len(lastAttempts)-1].ChannelId, false)
 		}
 	}
 
@@ -681,6 +742,8 @@ func RelayTask(c *gin.Context) {
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 		task.PrivateData.TokenId = relayInfo.TokenId
 		task.PrivateData.NodeName = common.NodeName
+		task.PrivateData.CallbackUrl = callbackURL
+		task.PrivateData.CallbackSecret = callbackSecret
 		task.PrivateData.BillingContext = &model.TaskBillingContext{
 			ModelPrice:      relayInfo.PriceData.ModelPrice,
 			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
@@ -688,6 +751,7 @@ func RelayTask(c *gin.Context) {
 			OtherRatios:     relayInfo.PriceData.OtherRatios(),
 			OriginModelName: relayInfo.OriginModelName,
 			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
+			PriceVersionId:  relayInfo.PriceData.PriceVersionId,
 		}
 		task.Quota = result.Quota
 		task.Data = result.TaskData

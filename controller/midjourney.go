@@ -205,7 +205,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 			if (task.Progress != "100%" && responseItem.FailReason != "") || (task.Progress == "100%" && task.Status == "FAILURE") {
 				logger.LogInfo(ctx, task.MjId+" 构建失败，"+task.FailReason)
 				task.Progress = "100%"
-				if task.Quota != 0 {
+				if preStatus != "FAILURE" && task.Quota > 0 {
 					shouldReturnQuota = true
 				}
 			}
@@ -213,22 +213,12 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 			if err != nil {
 				logger.LogError(ctx, "UpdateMidjourneyTask task error: "+err.Error())
 			} else if won && shouldReturnQuota {
-				err = model.IncreaseUserQuota(task.UserId, task.Quota, false)
-				if err != nil {
-					logger.LogError(ctx, "fail to increase user quota: "+err.Error())
-				}
-				model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-					UserId:    task.UserId,
-					LogType:   model.LogTypeRefund,
-					Content:   "",
-					ChannelId: task.ChannelId,
-					ModelName: service.CovertMjpActionToModelName(task.Action),
-					Quota:     task.Quota,
-					Other: map[string]interface{}{
-						"task_id": task.MjId,
-						"reason":  "构图失败",
-					},
-				})
+				service.RefundMidjourneyQuota(ctx, task, "image generation failed")
+			}
+			// P0-09 客户级任务回调：任务刚到达终态（SUCCESS/FAILURE 且 100%）时
+			// 后台异步投递（含签名与重试）；退款先于投递，负载中 quota 为最终值。
+			if won && task.CallbackUrl != "" && task.Progress == "100%" && (task.Status == "SUCCESS" || task.Status == "FAILURE") {
+				service.DeliverTaskCallbackAsync(ctx, task.CallbackUrl, task.CallbackSecret, service.BuildMidjourneyCallbackPayload(task))
 			}
 		}
 	}

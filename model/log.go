@@ -220,6 +220,18 @@ func RecordLoginLog(userId int, username string, content string, ip string, acti
 	}
 }
 
+// RecordLoginFailureLog preserves failed authentication attempts without
+// storing passwords or other credential material. UserId is intentionally
+// zero because the supplied username might not identify an existing account.
+func RecordLoginFailureLog(username string, ip string, method string, reason string) {
+	RecordLoginLog(0, username, "Login failed via "+method, ip, "login_failed", map[string]interface{}{
+		"method": method,
+		"reason": reason,
+	}, map[string]interface{}{
+		"login_method": method,
+	})
+}
+
 // RecordOperationAuditLog 记录管理/高危操作审计日志（type=LogTypeManage）。
 // logUserId 为日志归属者，管理审计日志应归属实际操作者；目标资源/用户放入
 // action params。username 内部按 logUserId 查询。content 为英文兜底文本（供导出使用）。
@@ -338,17 +350,42 @@ type RecordConsumeLogParams struct {
 	IsStream         bool                   `json:"is_stream"`
 	Group            string                 `json:"group"`
 	Other            map[string]interface{} `json:"other"`
+	// PriceVersionId is the price version bound at pre-consume (P0-28); 0 means
+	// the charge predates versioning.
+	PriceVersionId int `json:"price_version_id"`
 }
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
-	if !common.LogConsumeEnabled {
-		return
-	}
 	logger.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
+	if requestId == "" {
+		requestId = common.NewRequestId()
+		c.Set(common.RequestIdKey, requestId)
+	}
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
 	createdAt := common.GetTimestamp()
+
+	// Keep project-level consumption traceability in the main database even
+	// when consumption log storage is disabled or configured to a separate
+	// LOG_DB (for example, ClickHouse). This is best-effort observability only:
+	// a failure here must never alter the completed billing result.
+	if err := RecordBusinessConsumption(RecordBusinessConsumptionParams{
+		RequestId:      requestId,
+		UserId:         userId,
+		TokenId:        params.TokenId,
+		Quota:          params.Quota,
+		ChannelId:      params.ChannelId,
+		ModelName:      params.ModelName,
+		CreatedAt:      createdAt,
+		PriceVersionId: params.PriceVersionId,
+	}); err != nil {
+		common.SysError("failed to record business consumption: " + err.Error())
+	}
+
+	if !common.LogConsumeEnabled {
+		return
+	}
 	otherStr := common.MapToJsonStr(params.Other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
@@ -700,7 +737,30 @@ func CountOldLog(ctx context.Context, targetTimestamp int64) (int64, error) {
 	return total, nil
 }
 
+// CountOldLogExcludingAudit 统计 created_at < target 且非审计类的旧日志数量
+// （数据保留 P0-31 专用：审计日志 LogTypeManage 与登录日志 LogTypeLogin
+// 属于不可抵赖审计轨迹，不受自动保留期清理，需显式管理）。
+func CountOldLogExcludingAudit(ctx context.Context, targetTimestamp int64) (int64, error) {
+	var total int64
+	if err := LOG_DB.WithContext(ctx).Model(&Log{}).
+		Where("created_at < ? AND type NOT IN (?, ?)", targetTimestamp, LogTypeManage, LogTypeLogin).
+		Count(&total).Error; err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 func DeleteOldLogBatch(ctx context.Context, targetTimestamp int64, limit int) (int64, error) {
+	return deleteOldLogBatchWithFilter(ctx, targetTimestamp, limit, false)
+}
+
+// DeleteOldLogBatchExcludingAudit 批量删除旧日志但保留审计/登录日志
+// （数据保留 P0-31 专用，见 CountOldLogExcludingAudit）。
+func DeleteOldLogBatchExcludingAudit(ctx context.Context, targetTimestamp int64, limit int) (int64, error) {
+	return deleteOldLogBatchWithFilter(ctx, targetTimestamp, limit, true)
+}
+
+func deleteOldLogBatchWithFilter(ctx context.Context, targetTimestamp int64, limit int, excludingAudit bool) (int64, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -713,25 +773,81 @@ func DeleteOldLogBatch(ctx context.Context, targetTimestamp int64, limit int) (i
 		// per-batch mutations would be pathologically slow. Remove all matching
 		// rows in a single synchronous mutation regardless of limit; the reported
 		// count lets the caller's progress loop complete in one pass.
+		// count the same rows the mutation will remove so the progress loop
+		// converges in one pass.
 		total, err := CountOldLog(ctx, targetTimestamp)
 		if err != nil {
 			return 0, err
 		}
+		if excludingAudit {
+			total, err = CountOldLogExcludingAudit(ctx, targetTimestamp)
+			if err != nil {
+				return 0, err
+			}
+		}
 		if total == 0 {
 			return 0, nil
 		}
-		if err := LOG_DB.WithContext(ctx).Exec(
-			"ALTER TABLE logs DELETE WHERE created_at < ? SETTINGS mutations_sync = 1",
-			targetTimestamp,
-		).Error; err != nil {
-			return 0, err
+		var execErr error
+		if excludingAudit {
+			execErr = LOG_DB.WithContext(ctx).Exec(
+				"ALTER TABLE logs DELETE WHERE created_at < ? AND type NOT IN (?, ?) SETTINGS mutations_sync = 1",
+				targetTimestamp, LogTypeManage, LogTypeLogin,
+			).Error
+		} else {
+			execErr = LOG_DB.WithContext(ctx).Exec(
+				"ALTER TABLE logs DELETE WHERE created_at < ? SETTINGS mutations_sync = 1",
+				targetTimestamp,
+			).Error
+		}
+		if execErr != nil {
+			return 0, execErr
 		}
 		return total, nil
 	}
 
-	result := LOG_DB.WithContext(ctx).Where("created_at < ?", targetTimestamp).Limit(limit).Delete(&Log{})
+	// Two-step batch delete for SQLite/MySQL/PostgreSQL compatibility:
+	// PostgreSQL rejects `DELETE ... LIMIT`, and MySQL forbids subqueries
+	// referencing the table being deleted. Selecting the id batch first and
+	// then deleting by ids works on all three databases.
+	query := LOG_DB.WithContext(ctx).Model(&Log{}).Select("id").Where("created_at < ?", targetTimestamp)
+	if excludingAudit {
+		query = query.Where("type NOT IN (?, ?)", LogTypeManage, LogTypeLogin)
+	}
+	var ids []int64
+	if err := query.Limit(limit).Find(&ids).Error; err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	result := LOG_DB.WithContext(ctx).Where("id IN ?", ids).Delete(&Log{})
 	if nil != result.Error {
 		return 0, result.Error
 	}
 	return result.RowsAffected, nil
+}
+
+// GetUserConsumeErrorRate 返回用户近 hours 小时内「失败消费日志」占比（P0-04）。
+// 失败指最终额度为 0 的消费日志（通常为上游超时/错误导致的零结算）。
+// 全部消费日志量或近窗口内无日志时返回 0，避免除零与噪声。
+func GetUserConsumeErrorRate(userId int, hours int) float64 {
+	if userId <= 0 || hours <= 0 {
+		return 0
+	}
+	since := common.GetTimestamp() - int64(hours)*3600
+	var total int64
+	if err := LOG_DB.Model(&Log{}).Where("user_id = ? AND type = ? AND created_at >= ?", userId, LogTypeConsume, since).Count(&total).Error; err != nil {
+		common.SysError("failed to count user consume logs: " + err.Error())
+		return 0
+	}
+	if total < 5 {
+		return 0 // 样本过少不展示错误率，避免误导
+	}
+	var failed int64
+	if err := LOG_DB.Model(&Log{}).Where("user_id = ? AND type = ? AND quota = 0 AND created_at >= ?", userId, LogTypeConsume, since).Count(&failed).Error; err != nil {
+		common.SysError("failed to count failed user consume logs: " + err.Error())
+		return 0
+	}
+	return float64(failed) / float64(total)
 }

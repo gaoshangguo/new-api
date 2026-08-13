@@ -45,6 +45,7 @@ export const channelSchema = z.object({
   name: z.string(),
   weight: z.number().nullish(),
   rate_limit_rpm: z.number().optional(),
+  region: z.string().optional(),
   rate_limit_tpm: z.number().optional(),
   created_time: z.number(),
   test_time: z.number(),

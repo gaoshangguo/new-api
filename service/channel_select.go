@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -91,6 +92,12 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	allowedChannelIDs := projectRuntime.AllowedChannelIDs()
 	tokenChannelIDs, _ := contextChannelAllowlist(param.Ctx)
 	allowedChannelIDs = mergeChannelAllowlists(allowedChannelIDs, tokenChannelIDs)
+	// P0-10 模型别名渠道限制：与项目/令牌白名单取交集。
+	if aliasChannelIDs, err := aliasChannelAllowlist(param.Ctx); err == nil {
+		allowedChannelIDs = mergeChannelAllowlists(allowedChannelIDs, aliasChannelIDs)
+	}
+	// P0-14 地区维度：请求可经 X-API-Region 指定渠道地区。
+	requestRegion := common.GetContextKeyString(param.Ctx, constant.ContextKeyRequestRegion)
 
 	if param.TokenGroup == "auto" {
 		if len(setting.GetAutoGroups()) == 0 {
@@ -121,7 +128,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath, allowedChannelIDs)
+			channel, _ = model.GetRandomSatisfiedChannelWithRegion(autoGroup, param.ModelName, priorityRetry, param.RequestPath, requestRegion, param.Ctx, allowedChannelIDs)
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -159,7 +166,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath, allowedChannelIDs)
+		channel, err = model.GetRandomSatisfiedChannelWithRegion(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath, requestRegion, param.Ctx, allowedChannelIDs)
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}
@@ -197,4 +204,28 @@ func mergeChannelAllowlists(a, b map[int]struct{}) map[int]struct{} {
 		}
 	}
 	return out
+}
+
+// aliasChannelAllowlist reads the model-alias channel restriction set by
+// Distribute (JSON array of channel ids). An empty or missing value means the
+// alias imposes no channel restriction.
+func aliasChannelAllowlist(c *gin.Context) (map[int]struct{}, error) {
+	raw := common.GetContextKeyString(c, constant.ContextKeyModelAliasChannelIds)
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var ids []int
+	if err := common.UnmarshalJsonStr(raw, &ids); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	out := make(map[int]struct{}, len(ids))
+	for _, id := range ids {
+		if id > 0 {
+			out[id] = struct{}{}
+		}
+	}
+	return out, nil
 }

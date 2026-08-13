@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -593,7 +594,10 @@ func CreateManualCreditRequest(req *ManualCreditRequest, actor BusinessActor) er
 	req.ReversalReference = nil
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var user User
-		if err := tx.First(&user, req.UserId).Error; err != nil {
+		// Lock the customer wallet row so concurrent submissions with the same
+		// external reference serialize here; otherwise the duplicate check below
+		// is a TOCTOU race and the same payment can be entered twice (P0-24).
+		if err := lockForUpdate(tx).First(&user, req.UserId).Error; err != nil {
 			return err
 		}
 		if req.ProjectId > 0 {
@@ -621,7 +625,7 @@ func CreateManualCreditRequest(req *ManualCreditRequest, actor BusinessActor) er
 			}
 		}
 		var duplicate ManualCreditRequest
-		if err := tx.Where("external_reference = ? AND amount = ?", req.ExternalReference, req.Amount).First(&duplicate).Error; err == nil {
+		if err := tx.Where("user_id = ? AND external_reference = ? AND amount = ?", req.UserId, req.ExternalReference, req.Amount).First(&duplicate).Error; err == nil {
 			req.Status = ManualAdjustmentStatusEscalated
 			req.DuplicateOfRequestId = duplicate.Id
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1152,32 +1156,32 @@ type BalanceLedgerFilter struct {
 }
 
 func balanceLedgerQuery(filter BalanceLedgerFilter) *gorm.DB {
-	query := DB.Model(&BalanceLedger{}).Order("id desc")
+	ledgerTable := DB.NamingStrategy.TableName("BalanceLedger")
+	query := DB.Model(&BalanceLedger{}).Order(ledgerTable + ".id desc")
 	if filter.CompanyId > 0 {
-		query = query.Where("company_id = ?", filter.CompanyId)
+		query = query.Where(ledgerTable+".company_id = ?", filter.CompanyId)
 	}
 	if filter.UserId > 0 {
-		query = query.Where("user_id = ?", filter.UserId)
+		query = query.Where(ledgerTable+".user_id = ?", filter.UserId)
 	}
 	if filter.ProjectId > 0 {
-		query = query.Where("project_id = ?", filter.ProjectId)
+		query = query.Where(ledgerTable+".project_id = ?", filter.ProjectId)
 	}
 	if filter.TokenId > 0 {
-		query = query.Where("token_id = ?", filter.TokenId)
+		query = query.Where(ledgerTable+".token_id = ?", filter.TokenId)
 	}
 	if filter.EntryType != "" {
-		query = query.Where("entry_type = ?", filter.EntryType)
+		query = query.Where(ledgerTable+".entry_type = ?", filter.EntryType)
 	}
 	if filter.ModelName != "" {
-		ledgerTable := DB.NamingStrategy.TableName("BalanceLedger")
 		consumptionTable := DB.NamingStrategy.TableName("BusinessConsumption")
 		query = query.Joins("JOIN "+consumptionTable+" ON "+consumptionTable+".request_id = "+ledgerTable+".request_id AND "+consumptionTable+".token_id = "+ledgerTable+".token_id").Where(consumptionTable+".model_name = ?", filter.ModelName)
 	}
 	if filter.StartAt > 0 {
-		query = query.Where("created_at >= ?", filter.StartAt)
+		query = query.Where(ledgerTable+".created_at >= ?", filter.StartAt)
 	}
 	if filter.EndAt > 0 {
-		query = query.Where("created_at <= ?", filter.EndAt)
+		query = query.Where(ledgerTable+".created_at <= ?", filter.EndAt)
 	}
 	return query
 }
@@ -1336,6 +1340,13 @@ type BusinessOperationsOverview struct {
 	RequestCount           int64 `json:"request_count"`
 	ErrorCount             int64 `json:"error_count"`
 	ConsumedQuota          int64 `json:"consumed_quota"`
+	// P0-27 经营指标：收入=窗口消费，成本=收入×成本系数（operations.cost_ratio，默认 0.6），毛利=收入-成本。
+	CostRatio              float64          `json:"cost_ratio"`
+	RevenueQuota           int64            `json:"revenue_quota"`
+	CostQuota              int64            `json:"cost_quota"`
+	GrossMarginQuota       int64            `json:"gross_margin_quota"`
+	TopModels              []CompanyModelUsage `json:"top_models"`
+	TopCompanies           []CompanyModelUsage `json:"top_companies"`
 	EnabledChannelCount    int64 `json:"enabled_channel_count"`
 	DegradedChannelCount   int64 `json:"degraded_channel_count"`
 }
@@ -1704,6 +1715,30 @@ func GetBusinessOperationsOverview(startTimestamp, endTimestamp int64) (*Busines
 	if err := DB.Model(&Channel{}).Where("status <> ?", common.ChannelStatusEnabled).Count(&overview.DegradedChannelCount).Error; err != nil {
 		return nil, err
 	}
+	// P0-27 经营指标：收入/成本/毛利与模型、企业排行。
+	overview.RevenueQuota = overview.ConsumedQuota
+	overview.CostRatio = 0.6
+	if raw, ok := common.OptionMap["operations.cost_ratio"]; ok && raw != "" {
+		if ratio, err := strconv.ParseFloat(raw, 64); err == nil && ratio >= 0 && ratio <= 1 {
+			overview.CostRatio = ratio
+		}
+	}
+	overview.CostQuota = int64(float64(overview.RevenueQuota) * overview.CostRatio)
+	overview.GrossMarginQuota = overview.RevenueQuota - overview.CostQuota
+	if err := DB.Model(&BusinessConsumption{}).
+		Select("model_name, COALESCE(SUM(quota), 0) AS quota, COUNT(*) AS calls").
+		Where("created_at >= ? AND created_at <= ?", startTimestamp, endTimestamp).
+		Group("model_name").Order("quota DESC").Limit(5).
+		Scan(&overview.TopModels).Error; err != nil {
+		return nil, err
+	}
+	if err := DB.Model(&BusinessConsumption{}).
+		Select("company_id AS model_name, COALESCE(SUM(quota), 0) AS quota, COUNT(*) AS calls").
+		Where("created_at >= ? AND created_at <= ?", startTimestamp, endTimestamp).
+		Group("company_id").Order("quota DESC").Limit(5).
+		Scan(&overview.TopCompanies).Error; err != nil {
+		return nil, err
+	}
 	return overview, nil
 }
 
@@ -1733,4 +1768,41 @@ func listBusinessProjectTokenIDs(projectID int) ([]int, error) {
 		return nil, err
 	}
 	return tokenIDs, nil
+}
+
+
+// GetBusinessCompany 返回单个企业（含主体资料字段）。
+func GetBusinessCompany(companyID int) (*Company, error) {
+	if companyID <= 0 {
+		return nil, errors.New("invalid company id")
+	}
+	var company Company
+	if err := DB.First(&company, companyID).Error; err != nil {
+		return nil, err
+	}
+	return &company, nil
+}
+
+// CountBusinessCompaniesOwnedBy 统计某用户作为 owner 的企业数量（P0-02 自助开户限一）。
+func CountBusinessCompaniesOwnedBy(userID int) (int64, error) {
+	if userID <= 0 {
+		return 0, errors.New("invalid user id")
+	}
+	var count int64
+	if err := DB.Model(&Company{}).Where("owner_user_id = ?", userID).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// GetBusinessCompanyByOwner 返回某用户作为 owner 的企业（P0-02 自助查询）。
+func GetBusinessCompanyByOwner(userID int) (*Company, error) {
+	if userID <= 0 {
+		return nil, errors.New("invalid user id")
+	}
+	var company Company
+	if err := DB.Where("owner_user_id = ?", userID).Order("id ASC").First(&company).Error; err != nil {
+		return nil, err
+	}
+	return &company, nil
 }

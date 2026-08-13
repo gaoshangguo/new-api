@@ -49,6 +49,9 @@ type Channel struct {
 	AutoBan           *int    `json:"auto_ban" gorm:"default:1"`
 	OtherInfo         string  `json:"other_info"`
 	Tag               *string `json:"tag" gorm:"index"`
+	// Region 标识渠道所在地区/线路（P0-14 多维路由维度）。
+	// 请求可通过 X-API-Region 请求头指定地区，无匹配渠道时回退全部渠道。
+	Region            *string `json:"region" gorm:"size:32;index"`
 	Setting           *string `json:"setting" gorm:"type:text"` // 渠道额外设置
 	ParamOverride     *string `json:"param_override" gorm:"type:text"`
 	HeaderOverride    *string `json:"header_override" gorm:"type:text"`

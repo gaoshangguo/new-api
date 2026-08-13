@@ -262,7 +262,10 @@ func TestPostConsumeQuotaBumpsBudgetCache(t *testing.T) {
 	}
 	require.NoError(t, model.DB.Create(token).Error)
 
-	info := &relaycommon.RelayInfo{UserId: user.Id, TokenId: token.Id, TokenKey: token.Key, TokenUnlimited: false}
+	info := &relaycommon.RelayInfo{
+		UserId: user.Id, TokenId: token.Id, TokenKey: token.Key, TokenUnlimited: false,
+		ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 7},
+	}
 	ctx := context.Background()
 	// 首次检查填充缓存（今日已用 0）
 	require.NoError(t, CheckTokenDailyMonthlyQuota(ctx, token.Id, 100, 0))

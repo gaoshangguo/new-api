@@ -418,10 +418,44 @@ func TokenAuth() func(c *gin.Context) {
 				abortWithOpenAiMessage(c, http.StatusInternalServerError,
 					common.TranslateMessage(c, i18n.MsgDatabaseError))
 			} else {
+				// P0-12 错误码契约：认证失败使用独立错误码 unauthorized。
 				abortWithOpenAiMessage(c, http.StatusUnauthorized,
-					common.TranslateMessage(c, i18n.MsgTokenInvalid))
+					common.TranslateMessage(c, i18n.MsgTokenInvalid), types.ErrorCodeUnauthorized)
 			}
 			return
+		}
+
+		// Project bindings are always resolved from the primary database rather
+		// than the token cache. A project can be disabled or a personal token can
+		// be bound to a project after this process has cached the token, and both
+		// changes must take effect before a relay request reaches model/channel
+		// selection.
+		projectRuntime, err := model.LoadBusinessProjectRuntimePolicyForToken(token.Id, token.UserId)
+		if err != nil {
+			if errors.Is(err, model.ErrBusinessProjectDisabled) ||
+				errors.Is(err, model.ErrBusinessProjectTokenBinding) ||
+				errors.Is(err, model.ErrBusinessProjectLimitConfiguration) {
+				abortWithOpenAiMessage(c, http.StatusForbidden, "project access is unavailable", types.ErrorCodeAccessDenied)
+				return
+			}
+			common.SysLog(fmt.Sprintf("TokenAuth project runtime lookup error for token %d: %v", token.Id, err))
+			abortWithOpenAiMessage(c, http.StatusInternalServerError,
+				common.TranslateMessage(c, i18n.MsgDatabaseError))
+			return
+		}
+		if projectRuntime != nil {
+			token.ProjectId = projectRuntime.ProjectId
+			if err := model.CheckBusinessProjectBudgetAtAuthentication(projectRuntime); err != nil {
+				if errors.Is(err, model.ErrBusinessProjectBudgetExceeded) {
+					abortWithOpenAiMessage(c, http.StatusForbidden, "project budget is exhausted", types.ErrorCodeAccessDenied)
+					return
+				}
+				common.SysLog(fmt.Sprintf("TokenAuth project budget lookup error for token %d: %v", token.Id, err))
+				abortWithOpenAiMessage(c, http.StatusInternalServerError,
+					common.TranslateMessage(c, i18n.MsgDatabaseError))
+				return
+			}
+			common.SetContextKey(c, constant.ContextKeyBusinessProjectRuntime, projectRuntime)
 		}
 
 		tokenChannelIDs, err := token.GetChannelLimitIDs()

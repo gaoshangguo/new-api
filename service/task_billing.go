@@ -47,20 +47,29 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
 		other["user_group_ratio"] = info.PriceData.GroupRatioInfo.GroupSpecialRatio
 	}
+	if info.PriceData.PriceVersionId > 0 {
+		other["price_version_id"] = info.PriceData.PriceVersionId
+	}
+	// P0-15 结构化路由轨迹：任务提交日志记录路由摘要（含管理端明细）。
+	if trace := model.GetRoutingTrace(c); trace != nil {
+		other["routing_trace"] = trace.RoutingSummary()
+		other["routing"] = trace
+	}
 	if info.IsModelMapped {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
 	attachQuotaSaturation(c, info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
-		ChannelId: info.ChannelId,
-		ModelName: info.OriginModelName,
-		TokenName: tokenName,
-		Quota:     info.PriceData.Quota,
-		Content:   logContent,
-		TokenId:   info.TokenId,
-		Group:     info.UsingGroup,
-		Other:     other,
+		ChannelId:      info.ChannelId,
+		ModelName:      info.OriginModelName,
+		TokenName:      tokenName,
+		Quota:          info.PriceData.Quota,
+		Content:        logContent,
+		TokenId:        info.TokenId,
+		Group:          info.UsingGroup,
+		Other:          other,
+		PriceVersionId: info.PriceData.PriceVersionId,
 	})
 	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
 	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
@@ -127,6 +136,9 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 			other["model_ratio"] = bc.ModelRatio
 		}
 		other["group_ratio"] = bc.GroupRatio
+		if bc.PriceVersionId > 0 {
+			other["price_version_id"] = bc.PriceVersionId
+		}
 		if priceData := taskBillingContextPriceData(bc); priceData != nil {
 			for k, v := range priceData.OtherRatios() {
 				other[k] = v
@@ -178,7 +190,26 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	// 2. 退还令牌额度
 	taskAdjustTokenQuota(ctx, task, -quota)
 
-	// 3. 记录日志
+	// 3. The original task submission creates one positive project-consumption
+	// projection. A failed task must append the matching negative projection
+	// after its funding refund succeeds, otherwise the project budget remains
+	// permanently occupied even though the customer has been refunded. The ID is
+	// stable across polling retries, so this append-only adjustment is idempotent.
+	if task.PrivateData.TokenId > 0 {
+		adjustmentRequestID := "task-refund-" + common.Sha1([]byte(fmt.Sprintf("%d:%s", task.ID, task.TaskID)))
+		if err := model.RecordBusinessConsumptionAdjustment(model.RecordBusinessConsumptionAdjustmentParams{
+			RequestId: adjustmentRequestID,
+			UserId:    task.UserId,
+			TokenId:   task.PrivateData.TokenId,
+			Quota:     -quota,
+			ChannelId: task.ChannelId,
+			ModelName: taskModelName(task),
+		}); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("task refund project consumption adjustment failed task %s: %s", task.TaskID, err.Error()))
+		}
+	}
+
+	// 4. 记录日志
 	other := taskBillingOther(task)
 	other["task_id"] = task.TaskID
 	other["reason"] = reason
@@ -194,11 +225,72 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 		Other:     other,
 	})
 
-	// 4. 资金退款完成后再清除持久化标记。
+	// 5. 资金退款完成后再清除持久化标记。
 	// 回写失败必须显式告警，避免漏掉潜在的重复退款风险。
 	task.Quota = 0
 	if err := task.UpdateQuota(); err != nil {
 		logger.LogError(ctx, fmt.Sprintf("退款成功但清除 task quota 失败 task %s: %s", task.TaskID, err.Error()))
+	}
+	return true
+}
+
+// RefundMidjourneyQuota returns a charged Midjourney task after the polling
+// worker has atomically transitioned it to failure. Midjourney uses the wallet
+// billing path, so unlike generic tasks it has no subscription funding source.
+func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason string) bool {
+	if task == nil || task.Quota == 0 {
+		return true
+	}
+	if task.Quota < 0 || task.Quota > common.MaxQuota {
+		logger.LogError(ctx, fmt.Sprintf("invalid Midjourney refund quota (task=%s, quota=%d)", task.MjId, task.Quota))
+		return false
+	}
+
+	quota := task.Quota
+	if err := model.IncreaseUserQuota(task.UserId, quota, false); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("failed to refund Midjourney wallet quota (task=%s): %s", task.MjId, err.Error()))
+		return false
+	}
+
+	if task.TokenId > 0 {
+		tokenKey := resolveTokenKey(ctx, task.TokenId, task.MjId)
+		if tokenKey != "" {
+			if err := model.IncreaseTokenQuota(task.TokenId, tokenKey, quota); err != nil {
+				logger.LogWarn(ctx, fmt.Sprintf("failed to refund Midjourney token quota (task=%s): %s", task.MjId, err.Error()))
+			}
+		}
+
+		adjustmentRequestID := "mj-refund-" + common.Sha1([]byte(fmt.Sprintf("%d:%s:%s", task.Id, task.MjId, task.RequestId)))
+		if err := model.RecordBusinessConsumptionAdjustment(model.RecordBusinessConsumptionAdjustmentParams{
+			RequestId: adjustmentRequestID,
+			UserId:    task.UserId,
+			TokenId:   task.TokenId,
+			Quota:     -quota,
+			ChannelId: task.ChannelId,
+			ModelName: CovertMjpActionToModelName(task.Action),
+		}); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("Midjourney refund project consumption adjustment failed task %s: %s", task.MjId, err.Error()))
+		}
+	}
+
+	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+		UserId:    task.UserId,
+		LogType:   model.LogTypeRefund,
+		Content:   "",
+		ChannelId: task.ChannelId,
+		ModelName: CovertMjpActionToModelName(task.Action),
+		Quota:     quota,
+		TokenId:   task.TokenId,
+		Other: map[string]interface{}{
+			"task_id":    task.MjId,
+			"request_id": task.RequestId,
+			"reason":     reason,
+		},
+	})
+
+	task.Quota = 0
+	if err := task.UpdateQuota(); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("Midjourney refund succeeded but clearing quota failed task %s: %s", task.MjId, err.Error()))
 	}
 	return true
 }
@@ -236,6 +328,26 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 
 	// 调整令牌额度
 	taskAdjustTokenQuota(ctx, task, quotaDelta)
+
+	if task.PrivateData.TokenId > 0 {
+		// This adjustment is discovered only after an async upstream task has
+		// completed, so its positive side cannot be a normal preflight budget
+		// reservation. A stable ID includes both before/after values so multiple
+		// distinct reconciliations remain append-only instead of suppressing one
+		// another. Negative deltas are recorded too, preserving project budget
+		// accuracy for refunds without allowing a negative net usage bypass.
+		adjustmentRequestID := "task-adjust-" + common.Sha1([]byte(fmt.Sprintf("%d:%s:%d:%d", task.ID, task.TaskID, preConsumedQuota, actualQuota)))
+		if err := model.RecordBusinessConsumptionAdjustment(model.RecordBusinessConsumptionAdjustmentParams{
+			RequestId: adjustmentRequestID,
+			UserId:    task.UserId,
+			TokenId:   task.PrivateData.TokenId,
+			Quota:     quotaDelta,
+			ChannelId: task.ChannelId,
+			ModelName: taskModelName(task),
+		}); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("task project budget reconciliation required task %s: %s", task.TaskID, err.Error()))
+		}
+	}
 
 	task.Quota = actualQuota
 	if err := task.UpdateQuota(); err != nil {

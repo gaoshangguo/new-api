@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   Activity,
+  BriefcaseBusiness,
   Box,
   CreditCard,
   FileText,
@@ -36,8 +37,14 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { type SidebarData } from '@/components/layout/types'
+import type { SidebarData } from '@/components/layout/types'
+import {
+  BUSINESS_PERMISSION_ACTIONS,
+  BUSINESS_WORKBENCH_READ_RESOURCES,
+} from '@/features/business/types'
+import { hasPermission } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -47,6 +54,11 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
+  const currentUser = useAuthStore((state) => state.auth.user)
+  const canAccessBusinessWorkbench =
+    BUSINESS_WORKBENCH_READ_RESOURCES.some((resource) =>
+      hasPermission(currentUser, resource, BUSINESS_PERMISSION_ACTIONS.READ)
+    )
 
   return {
     navGroups: [
@@ -109,12 +121,33 @@ export function useSidebarData(): SidebarData {
             icon: Wallet,
           },
           {
+            title: t('Financial details'),
+            url: '/wallet/financial-details',
+            icon: FileText,
+          },
+          {
             title: t('Profile'),
             url: '/profile',
             icon: User,
           },
         ],
       },
+      ...(canAccessBusinessWorkbench
+        ? [
+            {
+              id: 'business',
+              title: t('Business workspace'),
+              items: [
+                {
+                  title: t('Business workbench'),
+                  url: '/business',
+                  activeUrls: ['/business', '/business/'],
+                  icon: BriefcaseBusiness,
+                },
+              ],
+            },
+          ]
+        : []),
       {
         id: 'admin',
         title: t('Admin'),

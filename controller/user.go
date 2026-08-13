@@ -51,6 +51,7 @@ func Login(c *gin.Context) {
 	username := loginRequest.Username
 	password := loginRequest.Password
 	if username == "" || password == "" {
+		model.RecordLoginFailureLog(username, c.ClientIP(), "password", "invalid_credentials")
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -60,6 +61,7 @@ func Login(c *gin.Context) {
 	}
 	err = user.ValidateAndFill()
 	if err != nil {
+		model.RecordLoginFailureLog(username, c.ClientIP(), "password", "authentication_failed")
 		switch {
 		case errors.Is(err, model.ErrDatabase):
 			common.SysLog(fmt.Sprintf("Login database error for user %s: %v", username, err))
@@ -190,6 +192,8 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 	service.WriteRefreshCookie(c, bundle.RefreshToken)
 	setAuthNoStore(c)
 	recordLoginAudit(user, c)
+	// P0-03 异常登录提醒：登录成功后异步检测新的设备/地点。
+	maybeAlertAbnormalLogin(currentUser, bundle.Session.SID, c)
 	c.JSON(http.StatusOK, gin.H{
 		"message": "",
 		"success": true,
@@ -201,6 +205,50 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 			"user":              buildSelfUserData(currentUser),
 		},
 	})
+}
+
+// maybeAlertAbnormalLogin 登录成功后对比该用户最近的登录会话 IP：
+// 若本次来源 IP 未曾出现过，视为新设备/新地点登录，记录站内安全日志并
+// 按用户通知设置发送提醒（P0-03）。默认开启，可用
+// LOGIN_ABNORMAL_ALERT_ENABLED=false 关闭。首个会话不告警。
+func maybeAlertAbnormalLogin(user *model.User, sessionSID string, c *gin.Context) {
+	if user == nil || user.Id <= 0 {
+		return
+	}
+	if !common.GetEnvOrDefaultBool("LOGIN_ABNORMAL_ALERT_ENABLED", true) {
+		return
+	}
+	ip := c.ClientIP()
+	ua := c.Request.UserAgent()
+	if ip == "" || ip == "127.0.0.1" || ip == "::1" {
+		return
+	}
+	recentIPs, err := model.RecentLoginIPs(user.Id, sessionSID, 10)
+	if err != nil {
+		common.SysError(fmt.Sprintf("failed to load recent login ips for user %d: %v", user.Id, err))
+		return
+	}
+	if len(recentIPs) == 0 {
+		return // 首个会话不视为异常
+	}
+	for _, recent := range recentIPs {
+		if recent == ip {
+			return // 已见过的来源
+		}
+	}
+	content := fmt.Sprintf("Detected a login from a new device/location: IP %s, User-Agent %s / 检测到新设备或新地点登录：IP %s", ip, ua, ip)
+	model.RecordLoginLog(user.Id, user.Username, "Security alert: login from a new location", ip, "security_alert",
+		map[string]interface{}{"method": "password"},
+		map[string]interface{}{"user_agent": ua, "new_ip": ip})
+	logger.LogWarn(c, fmt.Sprintf("abnormal login alert for user %d: new ip %s", user.Id, ip))
+	// 站内/邮件提醒（按用户通知设置）。默认关闭外发，仅站内日志。
+	if common.GetEnvOrDefaultBool("LOGIN_ABNORMAL_ALERT_NOTIFY_ENABLED", false) {
+		userSetting, _ := model.GetUserSetting(user.Id, false)
+		notify := dto.NewNotify(dto.NotifyTypeSecurityAlert, "New device login alert", content, nil)
+		if notifyErr := service.NotifyUser(user.Id, user.Email, userSetting, notify); notifyErr != nil {
+			common.SysError(fmt.Sprintf("failed to notify abnormal login for user %d: %v", user.Id, notifyErr))
+		}
+	}
 }
 
 func Register(c *gin.Context) {
@@ -220,9 +268,21 @@ func Register(c *gin.Context) {
 	}
 	user.Username = strings.TrimSpace(user.Username)
 	user.Email = model.NormalizeEmail(user.Email)
+	user.Phone = strings.TrimSpace(user.Phone)
 	if user.Username == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
+	}
+	if user.Phone != "" {
+		phoneTaken, err := model.IsPhoneTaken(user.Phone)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if phoneTaken {
+			common.ApiErrorMsg(c, "phone number is already registered")
+			return
+		}
 	}
 	if err := common.Validate.Struct(&user); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
@@ -267,6 +327,7 @@ func Register(c *gin.Context) {
 		Password:    user.Password,
 		DisplayName: user.Username,
 		InviterId:   inviterId,
+		Phone:       user.Phone,
 		Role:        common.RoleCommonUser, // 明确设置角色为普通用户
 	}
 	if common.EmailVerificationEnabled {
@@ -529,6 +590,8 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"wechat_id":         user.WeChatId,
 		"telegram_id":       user.TelegramId,
 		"group":             user.Group,
+		"frozen_quota":      user.FrozenQuota,
+		"phone":             user.Phone,
 		"quota":             user.Quota,
 		"used_quota":        user.UsedQuota,
 		"request_count":     user.RequestCount,
@@ -1168,6 +1231,15 @@ func ManageUser(c *gin.Context) {
 		}
 		user.Role = common.RoleCommonUser
 	case "add_quota":
+		isCompanyOwner, err := model.IsCompanyOwner(user.Id)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if isCompanyOwner {
+			common.ApiError(c, errors.New("enterprise balance changes must use the reviewed finance workflow"))
+			return
+		}
 		switch req.Mode {
 		case "add":
 			if req.Value <= 0 {
@@ -1194,6 +1266,10 @@ func ManageUser(c *gin.Context) {
 				"quota": logger.LogQuota(req.Value),
 			})
 		case "override":
+			if req.Value < 0 || req.Value > common.MaxQuota {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
 			oldQuota := user.Quota
 			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
 				common.ApiError(c, err)

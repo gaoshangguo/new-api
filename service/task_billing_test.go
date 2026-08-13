@@ -45,10 +45,16 @@ func TestMain(m *testing.M) {
 
 	if err := db.AutoMigrate(
 		&model.Task{},
+		&model.Midjourney{},
 		&model.User{},
 		&model.Token{},
 		&model.Log{},
 		&model.Channel{},
+		&model.Company{},
+		&model.BusinessProject{},
+		&model.BusinessConsumption{},
+		&model.BusinessProjectBudgetReservation{},
+		&model.BalanceLedger{},
 		&model.TopUp{},
 		&model.UserSubscription{},
 		&model.SystemTask{},
@@ -67,7 +73,13 @@ func TestMain(m *testing.M) {
 func truncate(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
+		model.DB.Exec("DELETE FROM balance_ledgers")
+		model.DB.Exec("DELETE FROM business_project_budget_reservations")
+		model.DB.Exec("DELETE FROM business_consumptions")
+		model.DB.Exec("DELETE FROM business_projects")
+		model.DB.Exec("DELETE FROM companies")
 		model.DB.Exec("DELETE FROM tasks")
+		model.DB.Exec("DELETE FROM midjourneys")
 		model.DB.Exec("DELETE FROM users")
 		model.DB.Exec("DELETE FROM tokens")
 		model.DB.Exec("DELETE FROM logs")
@@ -281,6 +293,13 @@ func getTaskQuota(t *testing.T, id int64) int {
 	return task.Quota
 }
 
+func getMidjourneyQuota(t *testing.T, id int) int {
+	t.Helper()
+	var task model.Midjourney
+	require.NoError(t, model.DB.Select("quota").Where("id = ?", id).First(&task).Error)
+	return task.Quota
+}
+
 func getLastLog(t *testing.T) *model.Log {
 	t.Helper()
 	var log model.Log
@@ -334,6 +353,112 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	assert.Equal(t, "test-model", log.ModelName)
 	assert.Zero(t, task.Quota)
 	assert.Zero(t, getTaskQuota(t, task.ID))
+}
+
+func TestRefundTaskQuotaReleasesBusinessProjectConsumption(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 6, 6, 6
+	const preConsumed = 300
+	seedUser(t, userID, 1_000)
+	seedChannel(t, channelID)
+
+	company := &model.Company{Name: "Task Refund Company", OwnerUserId: userID}
+	require.NoError(t, model.DB.Create(company).Error)
+	project := &model.BusinessProject{
+		CompanyId:   company.Id,
+		OwnerUserId: userID,
+		Name:        "Task Refund Project",
+		BudgetQuota: 1_000,
+		Status:      model.BusinessProjectStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(project).Error)
+	token := &model.Token{
+		Id:          tokenID,
+		UserId:      userID,
+		ProjectId:   project.Id,
+		Key:         "task-refund-project-key",
+		Name:        "task-refund-project-key",
+		Status:      common.TokenStatusEnabled,
+		RemainQuota: 1_000,
+	}
+	require.NoError(t, model.DB.Create(token).Error)
+	// Simulate the positive submission projection written by LogTaskConsumption.
+	require.NoError(t, model.DB.Create(&model.BusinessConsumption{
+		CompanyId: company.Id,
+		ProjectId: project.Id,
+		UserId:    userID,
+		TokenId:   tokenID,
+		RequestId: "task-submit-refund-projection",
+		Quota:     preConsumed,
+		ChannelId: channelID,
+		ModelName: "test-model",
+	}).Error)
+
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	require.NoError(t, model.DB.Create(task).Error)
+
+	require.True(t, RefundTaskQuota(ctx, task, "upstream task failed"))
+
+	var quotaSum struct {
+		Quota int64
+	}
+	require.NoError(t, model.DB.Model(&model.BusinessConsumption{}).
+		Where("project_id = ?", project.Id).
+		Select("COALESCE(SUM(quota), 0) AS quota").
+		Scan(&quotaSum).Error)
+	assert.Zero(t, quotaSum.Quota)
+
+	var refundProjection model.BusinessConsumption
+	require.NoError(t, model.DB.Where("project_id = ? AND quota = ?", project.Id, -preConsumed).First(&refundProjection).Error)
+	assert.Contains(t, refundProjection.RequestId, "task-refund-")
+	var refundLedger model.BalanceLedger
+	require.NoError(t, model.DB.Where("reference_type = ? AND reference_id = ?", "business_consumption", refundProjection.Id).First(&refundLedger).Error)
+	assert.Equal(t, model.LedgerEntryConsumptionRefund, refundLedger.EntryType)
+	assert.Zero(t, refundLedger.Amount)
+	assert.Equal(t, -preConsumed, refundLedger.UsageQuota)
+	assert.False(t, refundLedger.BalanceSnapshotAvailable)
+}
+
+func TestRefundMidjourneyQuotaReleasesBusinessProjectConsumption(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 66, 66, 66
+	const preConsumed = 300
+	seedUser(t, userID, 700)
+	seedChannel(t, channelID)
+	company := &model.Company{Name: "Midjourney Refund Company", OwnerUserId: userID}
+	require.NoError(t, model.DB.Create(company).Error)
+	project := &model.BusinessProject{CompanyId: company.Id, OwnerUserId: userID, Name: "Midjourney Refund Project", BudgetQuota: 1_000, Status: model.BusinessProjectStatusEnabled}
+	require.NoError(t, model.DB.Create(project).Error)
+	token := &model.Token{Id: tokenID, UserId: userID, ProjectId: project.Id, Key: "midjourney-refund-project-key", Name: "midjourney-refund-project-key", Status: common.TokenStatusEnabled, RemainQuota: 700, UsedQuota: preConsumed}
+	require.NoError(t, model.DB.Create(token).Error)
+	require.NoError(t, model.DB.Create(&model.BusinessConsumption{
+		CompanyId: company.Id, ProjectId: project.Id, UserId: userID, TokenId: tokenID,
+		RequestId: "midjourney-submit-projection", Quota: preConsumed, ChannelId: channelID, ModelName: "mj_imagine",
+	}).Error)
+
+	task := &model.Midjourney{UserId: userID, TokenId: tokenID, RequestId: "midjourney-submit-projection", MjId: "mj-refund-1", Action: "IMAGINE", ChannelId: channelID, Quota: preConsumed}
+	require.NoError(t, model.DB.Create(task).Error)
+	require.True(t, RefundMidjourneyQuota(ctx, task, "upstream task failed"))
+
+	assert.Equal(t, 1_000, getUserQuota(t, userID))
+	assert.Equal(t, 1_000, getTokenRemainQuota(t, tokenID))
+	var quotaSum struct{ Quota int64 }
+	require.NoError(t, model.DB.Model(&model.BusinessConsumption{}).Where("project_id = ?", project.Id).Select("COALESCE(SUM(quota), 0) AS quota").Scan(&quotaSum).Error)
+	assert.Zero(t, quotaSum.Quota)
+	var refundProjection model.BusinessConsumption
+	require.NoError(t, model.DB.Where("project_id = ? AND quota = ?", project.Id, -preConsumed).First(&refundProjection).Error)
+	assert.Contains(t, refundProjection.RequestId, "mj-refund-")
+	var refundLedger model.BalanceLedger
+	require.NoError(t, model.DB.Where("reference_type = ? AND reference_id = ?", "business_consumption", refundProjection.Id).First(&refundLedger).Error)
+	assert.Equal(t, model.LedgerEntryConsumptionRefund, refundLedger.EntryType)
+	assert.Zero(t, refundLedger.Amount)
+	assert.Equal(t, -preConsumed, refundLedger.UsageQuota)
+	assert.False(t, refundLedger.BalanceSnapshotAvailable)
+	assert.Zero(t, getMidjourneyQuota(t, task.Id))
 }
 
 func TestRefundTaskQuota_Subscription(t *testing.T) {

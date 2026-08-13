@@ -24,6 +24,10 @@ const (
 	// request-scoped guards (e.g. layered RPM/TPM rate limits) can read the
 	// token's limit fields without another cache or DB lookup.
 	ContextKeyToken ContextKey = "token"
+	// ContextKeyBusinessProjectRuntime stores the authoritative runtime policy
+	// for a token bound to an enterprise project. It is set during TokenAuth
+	// and used again by model/channel selection and billing guards.
+	ContextKeyBusinessProjectRuntime ContextKey = "business_project_runtime"
 
 	/* channel related keys */
 	ContextKeyChannelId                ContextKey = "channel_id"
@@ -77,4 +81,19 @@ const (
 	// fallback in authHelper (finishAdminAudit) skips its record to avoid
 	// duplicate entries.
 	ContextKeyAuditLogged ContextKey = "audit_logged"
+
+	// ContextKeyModelAlias / ContextKeyModelAliasVersion record that the
+	// request model was resolved through a model alias (P0-10), for log
+	// explainability and channel allowlist enforcement.
+	ContextKeyModelAlias        ContextKey = "model_alias"
+	ContextKeyModelAliasVersion ContextKey = "model_alias_version"
+	ContextKeyModelAliasChannelIds ContextKey = "model_alias_channel_ids"
+
+	// ContextKeyRequestRegion is the request-specified region (X-API-Region
+	// header) used by the P0-14 multi-dimension channel routing.
+	ContextKeyRequestRegion ContextKey = "request_region"
+
+	// ContextKeyRoutingTrace holds the structured per-request routing trace
+	// (P0-15): candidates, per-attempt channel + failure reason, final channel.
+	ContextKeyRoutingTrace ContextKey = "routing_trace"
 )

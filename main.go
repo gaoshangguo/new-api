@@ -339,6 +339,21 @@ func InitResources() error {
 	}
 	model.InitOptionMap()
 
+	// P0-28 价格版本：迁移后确保存在初始价格版本（快照当前价格地图），
+	// 并预热当前版本缓存，使首个请求即绑定版本。仅在 master 执行，
+	// 其他节点通过 GetCurrentPriceVersionId 的懒加载兜底。
+	if common.IsMasterNode {
+		if err := model.EnsureInitialPriceVersion(); err != nil {
+			common.SysError("failed to ensure initial price version: " + err.Error())
+		} else {
+			model.RefreshCurrentPriceVersionId()
+		}
+		// P0-10 模型别名：预热别名缓存（写操作会主动刷新，其他节点 TTL 兜底）。
+		if err := model.LoadModelAliases(); err != nil {
+			common.SysError("failed to load model aliases: " + err.Error())
+		}
+	}
+
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()
 

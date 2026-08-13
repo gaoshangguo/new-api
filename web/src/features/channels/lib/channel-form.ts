@@ -216,6 +216,7 @@ export const channelFormSchema = z
     test_model: z.string().optional(),
     auto_ban: z.number().optional(),
     key_expires_at: z.date().nullable().optional(),
+    region: z.string().max(32, 'Region must be less than 32 characters').optional(),
     status: z.number(),
     status_code_mapping: z
       .string()
@@ -417,6 +418,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   test_model: '',
   auto_ban: 1,
   key_expires_at: null,
+  region: '',
   status: CHANNEL_STATUS.ENABLED,
   status_code_mapping: '',
   tag: '',
@@ -574,6 +576,7 @@ export function transformChannelToFormDefaults(
     key_expires_at: channel.key_expires_at
       ? new Date(channel.key_expires_at * 1000)
       : null,
+    region: channel.region || '',
     status: channel.status,
     status_code_mapping: channel.status_code_mapping || '',
     tag: channel.tag || '',
@@ -805,6 +808,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     key_expires_at: formData.key_expires_at
       ? Math.floor(formData.key_expires_at.getTime() / 1000)
       : 0,
+    region: formData.region || '',
     status: formData.status,
     status_code_mapping: formData.status_code_mapping || null,
     tag: formData.tag || null,

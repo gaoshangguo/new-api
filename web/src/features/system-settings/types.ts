@@ -445,3 +445,81 @@ export type UpstreamRatiosResponse = {
     test_results: TestResult[]
   }
 }
+
+export type PriceVersionListItem = {
+  id: number
+  name: string
+  effective_at: number
+  status: 'pending' | 'active'
+  applied_at: number
+  created_by: number
+  created_at: number
+}
+
+export type PriceVersionListResponse = {
+  success: boolean
+  message: string
+  data: PriceVersionListItem[]
+  total: number
+}
+
+export type PriceVersionDetail = PriceVersionListItem & {
+  model_ratio: string
+  model_price: string
+  completion_ratio: string
+  cache_ratio: string
+  create_cache_ratio: string
+  image_ratio: string
+  audio_ratio: string
+  audio_completion_ratio: string
+  group_ratio: string
+  group_group_ratio: string
+}
+
+export type PriceVersionDetailResponse = {
+  success: boolean
+  message: string
+  data: PriceVersionDetail
+}
+
+export type CreatePriceVersionRequest = {
+  name?: string
+  effective_at?: number
+  overlay?: Record<string, string>
+  reason?: string
+}
+
+export type ModelAlias = {
+  id: number
+  alias_name: string
+  model_name: string
+  channel_ids: string
+  status: 'active' | 'deprecated'
+  replacement: string
+  version: number
+  note: string
+  created_by: number
+  created_at: number
+}
+
+export type ModelAliasRequest = {
+  alias_name: string
+  model_name: string
+  channel_ids?: string
+  status?: 'active' | 'deprecated'
+  replacement?: string
+  note?: string
+  reason?: string
+}
+
+export type ModelAliasListResponse = {
+  success: boolean
+  message: string
+  data: ModelAlias[]
+}
+
+export type ModelAliasResponse = {
+  success: boolean
+  message: string
+  data: ModelAlias
+}

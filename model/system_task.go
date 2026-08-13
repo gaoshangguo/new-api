@@ -22,6 +22,9 @@ const (
 	SystemTaskTypeMidjourneyPoll       = "midjourney_poll"
 	SystemTaskTypeAsyncTaskPoll        = "async_task_poll"
 	SystemTaskTypeBusinessReminderScan = "business_reminder_scan"
+	SystemTaskTypePriceVersionApply    = "price_version_apply"
+	SystemTaskTypeLogRetention         = "log_retention"
+	SystemTaskTypePlatformAlertEval    = "platform_alert_eval"
 
 	SystemTaskTypeChannelKeyExpiry    = "channel_key_expiry"
 	SystemTaskTypeChannelKeyReEncrypt = "channel_key_re_encrypt"

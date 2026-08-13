@@ -39,6 +39,40 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
+		// P0-14 地区维度：请求可通过 X-API-Region 头指定渠道地区。
+		if region := strings.TrimSpace(c.GetHeader("X-API-Region")); region != "" {
+			if len(region) > 64 {
+				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": "X-API-Region header is too long"}))
+				return
+			}
+			common.SetContextKey(c, constant.ContextKeyRequestRegion, region)
+		}
+		// P0-10 模型别名：在渠道选择/定价/限流之前把对外别名解析为内部模型名，
+		// 并记录原始别名供日志解释。deprecated 且无替代的别名直接拒绝。
+		if modelRequest.Model != "" {
+			resolved, aliasEntry, isAlias, resolveErr := model.ResolveModelAlias(modelRequest.Model)
+			if resolveErr != nil {
+				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": common.GetContextKeyString(c, constant.ContextKeyUsingGroup), "Model": modelRequest.Model, "Error": resolveErr.Error()}), types.ErrorCodeModelNotFound)
+				return
+			}
+			if isAlias {
+				modelRequest.Model = resolved
+				common.SetContextKey(c, constant.ContextKeyOriginalModel, resolved)
+				common.SetContextKey(c, constant.ContextKeyModelAlias, aliasEntry.AliasName)
+				common.SetContextKey(c, constant.ContextKeyModelAliasVersion, aliasEntry.Version)
+				if aliasEntry.ChannelIds != "" {
+					common.SetContextKey(c, constant.ContextKeyModelAliasChannelIds, aliasEntry.ChannelIds)
+				}
+			}
+		}
+		projectRuntime, _ := common.GetContextKeyType[*model.BusinessProjectRuntimePolicy](c, constant.ContextKeyBusinessProjectRuntime)
+		if projectRuntime != nil && projectRuntime.HasModelLimits() && modelRequest.Model != "" {
+			matchingModelName := ratio_setting.FormatMatchingModelName(modelRequest.Model)
+			if !projectRuntime.AllowsModel(modelRequest.Model) && !projectRuntime.AllowsModel(matchingModelName) {
+				abortWithOpenAiMessage(c, http.StatusForbidden, "model is not enabled for this project", types.ErrorCodeAccessDenied)
+				return
+			}
+		}
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -106,6 +140,7 @@ func Distribute() func(c *gin.Context) {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
+						projectRuntime.AllowsChannel(preferred.Id) &&
 						tokenChannelAllowlistOK(c, preferred.Id) &&
 						channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
 						if usingGroup == "auto" {
@@ -446,7 +481,8 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 // modelRequest.Model 为空而误报 "This token has no access to model"。
 // 从已存储的任务记录中回填 OriginModelName 即可让校验走在正确的模型上。
 func getTaskOriginModelName(c *gin.Context) string {
-	if !common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled) {
+	projectRuntime, _ := common.GetContextKeyType[*model.BusinessProjectRuntimePolicy](c, constant.ContextKeyBusinessProjectRuntime)
+	if !common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled) && (projectRuntime == nil || !projectRuntime.HasModelLimits()) {
 		return ""
 	}
 
@@ -470,6 +506,16 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	c.Set("original_model", modelName) // for retry
 	if channel == nil {
 		return types.NewError(errors.New("channel is nil"), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	}
+	projectRuntime, _ := common.GetContextKeyType[*model.BusinessProjectRuntimePolicy](c, constant.ContextKeyBusinessProjectRuntime)
+	if projectRuntime != nil && !projectRuntime.AllowsChannel(channel.Id) {
+		return types.NewErrorWithStatusCode(
+			model.ErrBusinessProjectChannelForbidden,
+			types.ErrorCodeAccessDenied,
+			http.StatusForbidden,
+			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithNoRecordErrorLog(),
+		)
 	}
 	// Token 级渠道白名单 choke point：specific-channel 与 affinity 路径绕过白名单
 	// 感知的随机分发，必须在选定渠道进入 relay 上下文前统一校验。affinity 分支在

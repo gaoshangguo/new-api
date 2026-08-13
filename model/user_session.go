@@ -868,3 +868,32 @@ func deleteRevokedUserSessionsBefore(revokedBefore, issuanceCutoff int64) error 
 		}
 	}
 }
+
+// RecentLoginIPs 返回用户最近的登录会话 IP（排除当前会话），按创建时间倒序，
+// 并对重复 IP 去重。用于 P0-03 异常登录提醒：若本次登录 IP 不在最近记录内
+// 视为新地点/新设备。
+func RecentLoginIPs(userID int, excludeSID string, limit int) ([]string, error) {
+	if userID <= 0 {
+		return nil, nil
+	}
+	var ips []string
+	err := DB.Model(&UserSession{}).
+		Where("user_id = ? AND sid != ? AND status = ? AND ip != ''", userID, excludeSID, UserSessionStatusActive).
+		Order("created_at desc").Limit(limit).Pluck("ip", &ips).Error
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(ips))
+	out := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		if ip == "" {
+			continue
+		}
+		if _, ok := seen[ip]; ok {
+			continue
+		}
+		seen[ip] = struct{}{}
+		out = append(out, ip)
+	}
+	return out, nil
+}

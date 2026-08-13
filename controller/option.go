@@ -363,17 +363,73 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	}
-	err = model.UpdateOption(option.Key, option.Value.(string))
-	if err != nil {
-		common.ApiError(c, err)
-		return
+	// P0-26 审计前后值：必须在 UpdateOption 修改内存值之前捕获旧值；
+	// 非价格、非敏感配置项在下方额外记录修改前后值（价格类键由价格版本审计覆盖前后快照）。
+	beforeValue := common.Interface2String(common.OptionMap[option.Key])
+	priceOptionChanged := false
+	if ratio_setting.IsPriceSnapshotKey(option.Key) {
+		err = model.UpdateOption(option.Key, option.Value.(string))
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		priceOptionChanged = beforeValue != option.Value.(string)
+	} else {
+		err = model.UpdateOption(option.Key, option.Value.(string))
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
 	}
 	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。
-	recordManageAudit(c, "option.update", map[string]interface{}{
-		"key": option.Key,
-	})
+	if !ratio_setting.IsPriceSnapshotKey(option.Key) && !isSensitiveOptionKey(option.Key) && beforeValue != option.Value.(string) {
+		recordManageAuditForWithDiff(c, c.GetInt("id"), "option.update", map[string]interface{}{
+			"key": option.Key,
+		}, map[string]string{option.Key: beforeValue}, map[string]string{option.Key: option.Value.(string)})
+	} else {
+		recordManageAudit(c, "option.update", map[string]interface{}{
+			"key": option.Key,
+		})
+	}
+	// P0-28 价格版本：价格类配置每次实际变更都生成一个立即生效的新价格版本，
+	// 快照当前全部价格地图，历史账单因此绑定旧版本、不受本次改价影响。
+	if priceOptionChanged {
+		recordPriceOptionVersion(c, option.Key)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
 	})
+}
+
+// isSensitiveOptionKey 判断配置项是否可能含敏感值（密钥类），此类键不记录前后值。
+func isSensitiveOptionKey(key string) bool {
+	lower := strings.ToLower(key)
+	for _, suffix := range []string{"token", "secret", "key", "api_key", "password", "private", "credential"} {
+		if strings.HasSuffix(lower, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// recordPriceOptionVersion creates a new audited price version after a price
+// option was updated through an admin flow. No-op for non-price keys.
+func recordPriceOptionVersion(c *gin.Context, key string) {
+	if !ratio_setting.IsPriceSnapshotKey(key) {
+		return
+	}
+	actor := businessAuditActor(c)
+	version, err := model.CreatePriceVersionFromLiveChange(key, &actor, "option update: "+key)
+	if err != nil {
+		common.SysError("failed to record price version for option update: " + err.Error())
+		return
+	}
+	if version != nil {
+		recordManageAudit(c, "price_version.create", map[string]interface{}{
+			"version_id": version.Id,
+			"status":     version.Status,
+			"key":        key,
+		})
+	}
 }

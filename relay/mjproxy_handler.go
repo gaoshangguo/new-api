@@ -26,6 +26,42 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func ensureMidjourneyRequestID(c *gin.Context, info *relaycommon.RelayInfo) string {
+	requestID := info.RequestId
+	if requestID == "" {
+		requestID = c.GetString(common.RequestIdKey)
+	}
+	if requestID == "" {
+		requestID = common.NewRequestId()
+	}
+	info.RequestId = requestID
+	c.Set(common.RequestIdKey, requestID)
+	return requestID
+}
+
+// resolveMidjourneyCallback 解析客户级任务回调（P0-09）：
+// URL 优先取 X-New-Api-Callback-Url 请求头，其次取 MJ 协议 notifyHook 字段；
+// 签名密钥取 X-New-Api-Callback-Secret 请求头。仅在 MjNotifyEnabled 关闭时
+// 由网关接管回调（开启时 notifyHook 仍按旧行为转发上游直连客户，避免重复投递）。
+func resolveMidjourneyCallback(c *gin.Context, notifyHook string) (url string, secret string, err error) {
+	if setting.MjNotifyEnabled {
+		return "", "", nil
+	}
+	url = strings.TrimSpace(c.GetHeader("X-New-Api-Callback-Url"))
+	if url == "" {
+		url = strings.TrimSpace(notifyHook)
+	}
+	secret = strings.TrimSpace(c.GetHeader("X-New-Api-Callback-Secret"))
+	return service.NormalizeMidjourneyCallback(url, secret)
+}
+
+func isMidjourneyTerminal(task *model.Midjourney) bool {
+	if task == nil {
+		return false
+	}
+	return task.Progress == "100%" && (task.Status == "SUCCESS" || task.Status == "FAILURE")
+}
+
 func RelayMidjourneyImage(c *gin.Context) {
 	taskId := c.Param("id")
 	midjourneyTask := model.GetByOnlyMJId(taskId)
@@ -117,6 +153,7 @@ func RelayMidjourneyNotify(c *gin.Context) *dto.MidjourneyResponse {
 			Result:      "",
 		}
 	}
+	preStatus := midjourneyTask.Status
 	midjourneyTask.Progress = midjRequest.Progress
 	midjourneyTask.PromptEn = midjRequest.PromptEn
 	midjourneyTask.State = midjRequest.State
@@ -129,12 +166,20 @@ func RelayMidjourneyNotify(c *gin.Context) *dto.MidjourneyResponse {
 	midjourneyTask.VideoUrls = string(videoUrlsStr)
 	midjourneyTask.Status = midjRequest.Status
 	midjourneyTask.FailReason = midjRequest.FailReason
-	err = midjourneyTask.Update()
+	shouldRefund := false
+	if (midjourneyTask.Progress != "100%" && midjourneyTask.FailReason != "") || (midjourneyTask.Progress == "100%" && midjourneyTask.Status == "FAILURE") {
+		midjourneyTask.Progress = "100%"
+		shouldRefund = preStatus != "FAILURE" && midjourneyTask.Quota > 0
+	}
+	won, err := midjourneyTask.UpdateWithStatus(preStatus)
 	if err != nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,
 			Description: "update_midjourney_task_failed",
 		}
+	}
+	if won && shouldRefund {
+		service.RefundMidjourneyQuota(c.Request.Context(), midjourneyTask, "upstream task failed")
 	}
 
 	return nil
@@ -197,6 +242,13 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 	}
 
 	info.InitChannelMeta(c)
+	requestID := ensureMidjourneyRequestID(c, info)
+
+	// P0-09 客户级任务回调：swap-face 无 notifyHook 字段，仅支持请求头。
+	callbackURL, callbackSecret, callbackErr := resolveMidjourneyCallback(c, "")
+	if callbackErr != nil {
+		return service.MidjourneyErrorWrapper(constant.MjRequestError, "invalid_callback_url")
+	}
 
 	if swapFaceRequest.SourceBase64 == "" || swapFaceRequest.TargetBase64 == "" {
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, "sour_base64_and_target_base64_is_required")
@@ -232,53 +284,77 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 	if err != nil {
 		return &mjResp.Response
 	}
+	var midjourneyTask *model.Midjourney
 	defer func() {
 		if mjResp.StatusCode == 200 && mjResp.Response.Code == 1 {
 			err := service.PostConsumeQuota(info, priceData.Quota, 0, true)
 			if err != nil {
 				common.SysLog("error consuming token remain quota: " + err.Error())
+				if midjourneyTask != nil && midjourneyTask.Id > 0 {
+					midjourneyTask.Quota = 0
+					if clearErr := midjourneyTask.UpdateQuota(); clearErr != nil {
+						common.SysLog("failed to clear uncharged Midjourney task quota: " + clearErr.Error())
+					}
+				}
+				return
 			}
 
 			tokenName := c.GetString("token_name")
 			logContent := fmt.Sprintf("模型固定价格 %.2f，分组倍率 %.2f，操作 %s", priceData.ModelPrice, priceData.GroupRatioInfo.GroupRatio, constant.MjActionSwapFace)
 			other := service.GenerateMjOtherInfo(info, priceData)
 			model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
-				ChannelId: info.ChannelId,
-				ModelName: modelName,
-				TokenName: tokenName,
-				Quota:     priceData.Quota,
-				Content:   logContent,
-				TokenId:   info.TokenId,
-				Group:     info.UsingGroup,
-				Other:     other,
+				ChannelId:      info.ChannelId,
+				ModelName:      modelName,
+				TokenName:      tokenName,
+				Quota:          priceData.Quota,
+				Content:        logContent,
+				TokenId:        info.TokenId,
+				Group:          info.UsingGroup,
+				Other:          other,
+				PriceVersionId: priceData.PriceVersionId,
 			})
 			model.UpdateUserUsedQuotaAndRequestCount(info.UserId, priceData.Quota)
 			model.UpdateChannelUsedQuota(info.ChannelId, priceData.Quota)
 		}
 	}()
 	midjResponse := &mjResp.Response
-	midjourneyTask := &model.Midjourney{
-		UserId:      info.UserId,
-		Code:        midjResponse.Code,
-		Action:      constant.MjActionSwapFace,
-		MjId:        midjResponse.Result,
-		Prompt:      "InsightFace",
-		PromptEn:    "",
-		Description: midjResponse.Description,
-		State:       "",
-		SubmitTime:  info.StartTime.UnixNano() / int64(time.Millisecond),
-		StartTime:   time.Now().UnixNano() / int64(time.Millisecond),
-		FinishTime:  0,
-		ImageUrl:    "",
-		Status:      "",
-		Progress:    "0%",
-		FailReason:  "",
-		ChannelId:   c.GetInt("channel_id"),
-		Quota:       priceData.Quota,
+	taskQuota := 0
+	if mjResp.StatusCode == http.StatusOK && midjResponse.Code == 1 {
+		taskQuota = priceData.Quota
+	}
+	midjourneyTask = &model.Midjourney{
+		UserId:         info.UserId,
+		TokenId:        info.TokenId,
+		RequestId:      requestID,
+		Code:           midjResponse.Code,
+		Action:         constant.MjActionSwapFace,
+		MjId:           midjResponse.Result,
+		Prompt:         "InsightFace",
+		PromptEn:       "",
+		Description:    midjResponse.Description,
+		State:          "",
+		SubmitTime:     info.StartTime.UnixNano() / int64(time.Millisecond),
+		StartTime:      time.Now().UnixNano() / int64(time.Millisecond),
+		FinishTime:     0,
+		ImageUrl:       "",
+		Status:         "",
+		Progress:       "0%",
+		FailReason:     "",
+		ChannelId:      c.GetInt("channel_id"),
+		Quota:          taskQuota,
+		CallbackUrl:    callbackURL,
+		CallbackSecret: callbackSecret,
 	}
 	err = midjourneyTask.Insert()
 	if err != nil {
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, "insert_midjourney_task_failed")
+	}
+	if midjourneyTask.CallbackUrl != "" && isMidjourneyTerminal(midjourneyTask) {
+		// P0-09 幂等：同一上游任务此前已挂接回调（如 code:21 重复提交）时不再重复投递。
+		duplicated, _ := model.HasMidjourneyCallbackDelivery(midjourneyTask.MjId, midjourneyTask.Id)
+		if !duplicated {
+			service.DeliverTaskCallbackAsync(c.Request.Context(), midjourneyTask.CallbackUrl, midjourneyTask.CallbackSecret, service.BuildMidjourneyCallbackPayload(midjourneyTask))
+		}
 	}
 	c.Writer.WriteHeader(mjResp.StatusCode)
 	respBody, err := json.Marshal(midjResponse)
@@ -305,6 +381,10 @@ func RelayMidjourneyTaskImageSeed(c *gin.Context) *dto.MidjourneyResponse {
 	}
 	if channel.Status != common.ChannelStatusEnabled {
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, "该任务所属渠道已被禁用")
+	}
+	projectRuntime, _ := common.GetContextKeyType[*model.BusinessProjectRuntimePolicy](c, constant.ContextKeyBusinessProjectRuntime)
+	if projectRuntime != nil && !projectRuntime.AllowsChannel(channel.Id) {
+		return service.MidjourneyErrorWrapper(constant.MjRequestError, "project_channel_forbidden")
 	}
 	c.Set("channel_id", originTask.ChannelId)
 	c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.Key))
@@ -399,6 +479,13 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	}
 
 	relayInfo.InitChannelMeta(c)
+	requestID := ensureMidjourneyRequestID(c, relayInfo)
+
+	// P0-09 客户级任务回调：提交时解析并校验回调配置（SSRF 防护）。
+	callbackURL, callbackSecret, callbackErr := resolveMidjourneyCallback(c, midjRequest.NotifyHook)
+	if callbackErr != nil {
+		return service.MidjourneyErrorWrapper(constant.MjRequestError, "invalid_callback_url")
+	}
 
 	if relayInfo.RelayMode == relayconstant.RelayModeMidjourneyAction { // midjourney plus，需要从customId中获取任务信息
 		mjErr := service.CoverPlusActionToNormalAction(&midjRequest)
@@ -480,6 +567,10 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			if channel.Status != common.ChannelStatusEnabled {
 				return service.MidjourneyErrorWrapper(constant.MjRequestError, "该任务所属渠道已被禁用")
 			}
+			projectRuntime, _ := common.GetContextKeyType[*model.BusinessProjectRuntimePolicy](c, constant.ContextKeyBusinessProjectRuntime)
+			if projectRuntime != nil && !projectRuntime.AllowsChannel(channel.Id) {
+				return service.MidjourneyErrorWrapper(constant.MjRequestError, "project_channel_forbidden")
+			}
 			c.Set("base_url", channel.GetBaseURL())
 			c.Set("channel_id", originTask.ChannelId)
 			c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.Key))
@@ -539,24 +630,33 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	}
 	midjResponse := &midjResponseWithStatus.Response
 
+	var midjourneyTask *model.Midjourney
 	defer func() {
 		if consumeQuota && midjResponseWithStatus.StatusCode == 200 {
 			err := service.PostConsumeQuota(relayInfo, priceData.Quota, 0, true)
 			if err != nil {
 				common.SysLog("error consuming token remain quota: " + err.Error())
+				if midjourneyTask != nil && midjourneyTask.Id > 0 {
+					midjourneyTask.Quota = 0
+					if clearErr := midjourneyTask.UpdateQuota(); clearErr != nil {
+						common.SysLog("failed to clear uncharged Midjourney task quota: " + clearErr.Error())
+					}
+				}
+				return
 			}
 			tokenName := c.GetString("token_name")
 			logContent := fmt.Sprintf("模型固定价格 %.2f，分组倍率 %.2f，操作 %s，ID %s", priceData.ModelPrice, priceData.GroupRatioInfo.GroupRatio, midjRequest.Action, midjResponse.Result)
 			other := service.GenerateMjOtherInfo(relayInfo, priceData)
 			model.RecordConsumeLog(c, relayInfo.UserId, model.RecordConsumeLogParams{
-				ChannelId: relayInfo.ChannelId,
-				ModelName: modelName,
-				TokenName: tokenName,
-				Quota:     priceData.Quota,
-				Content:   logContent,
-				TokenId:   relayInfo.TokenId,
-				Group:     relayInfo.UsingGroup,
-				Other:     other,
+				ChannelId:      relayInfo.ChannelId,
+				ModelName:      modelName,
+				TokenName:      tokenName,
+				Quota:          priceData.Quota,
+				Content:        logContent,
+				TokenId:        relayInfo.TokenId,
+				Group:          relayInfo.UsingGroup,
+				Other:          other,
+				PriceVersionId: priceData.PriceVersionId,
 			})
 			model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, priceData.Quota)
 			model.UpdateChannelUsedQuota(relayInfo.ChannelId, priceData.Quota)
@@ -570,8 +670,10 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	// 23-队列已满，请稍后再试 {"code":23,"description":"队列已满，请稍后尝试","result":"14001929738841620","properties":{"discordInstanceId":"1118138338562560102"}}
 	// 24-prompt包含敏感词 {"code":24,"description":"可能包含敏感词","properties":{"promptEn":"nude body","bannedWord":"nude"}}
 	// other: 提交错误，description为错误描述
-	midjourneyTask := &model.Midjourney{
+	midjourneyTask = &model.Midjourney{
 		UserId:      relayInfo.UserId,
+		TokenId:     relayInfo.TokenId,
+		RequestId:   requestID,
 		Code:        midjResponse.Code,
 		Action:      midjRequest.Action,
 		MjId:        midjResponse.Result,
@@ -587,7 +689,9 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		Progress:    "0%",
 		FailReason:  "",
 		ChannelId:   c.GetInt("channel_id"),
-		Quota:       priceData.Quota,
+		Quota:       0,
+		CallbackUrl: callbackURL,
+		CallbackSecret: callbackSecret,
 	}
 	if midjResponse.Code == 3 {
 		//无实例账号自动禁用渠道（No available account instance）
@@ -632,11 +736,23 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		midjourneyTask.Progress = "100%"
 		midjourneyTask.Status = "SUCCESS"
 	}
+	if consumeQuota && midjResponseWithStatus.StatusCode == http.StatusOK {
+		midjourneyTask.Quota = priceData.Quota
+	}
 	err = midjourneyTask.Insert()
 	if err != nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,
 			Description: "insert_midjourney_task_failed",
+		}
+	}
+
+	// P0-09：提交即达终态（例如上游返回已完成的 code:21/1 结果）时直接投递回调。
+	if midjourneyTask.CallbackUrl != "" && isMidjourneyTerminal(midjourneyTask) {
+		// P0-09 幂等：同一上游任务此前已挂接回调（如 code:21 重复提交）时不再重复投递。
+		duplicated, _ := model.HasMidjourneyCallbackDelivery(midjourneyTask.MjId, midjourneyTask.Id)
+		if !duplicated {
+			service.DeliverTaskCallbackAsync(c.Request.Context(), midjourneyTask.CallbackUrl, midjourneyTask.CallbackSecret, service.BuildMidjourneyCallbackPayload(midjourneyTask))
 		}
 	}
 

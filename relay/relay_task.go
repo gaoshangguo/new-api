@@ -2,6 +2,7 @@ package relay
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -79,6 +81,14 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 		}
 	}
 
+	projectRuntime, _ := common.GetContextKeyType[*model.BusinessProjectRuntimePolicy](c, constant.ContextKeyBusinessProjectRuntime)
+	if projectRuntime != nil && projectRuntime.HasModelLimits() {
+		matchingModelName := ratio_setting.FormatMatchingModelName(info.OriginModelName)
+		if info.OriginModelName == "" || (!projectRuntime.AllowsModel(info.OriginModelName) && !projectRuntime.AllowsModel(matchingModelName)) {
+			return service.TaskErrorWrapperLocal(model.ErrBusinessProjectModelForbidden, "project_model_forbidden", http.StatusForbidden)
+		}
+	}
+
 	// 锁定到原始任务的渠道（重试时复用同一渠道，轮换 key）
 	ch, err := model.GetChannelById(originTask.ChannelId, true)
 	if err != nil {
@@ -86,6 +96,9 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 	}
 	if ch.Status != common.ChannelStatusEnabled {
 		return service.TaskErrorWrapperLocal(errors.New("the channel of the origin task is disabled"), "task_channel_disable", http.StatusBadRequest)
+	}
+	if projectRuntime != nil && !projectRuntime.AllowsChannel(ch.Id) {
+		return service.TaskErrorWrapperLocal(model.ErrBusinessProjectChannelForbidden, "project_channel_forbidden", http.StatusForbidden)
 	}
 	info.LockedChannel = ch
 
@@ -483,7 +496,12 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 	}
 
 	if !snap.Equal(task.Snapshot()) {
-		_, _ = task.UpdateWithStatus(snap.Status)
+		won, _ := task.UpdateWithStatus(snap.Status)
+		// P0-09 客户回调：任务在此路径抢先到达终态（轮询循环此后 CAS 必败，
+		// 轮询侧无法补救），必须在转换点投递。
+		if won && (task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure) && task.PrivateData.CallbackUrl != "" {
+			service.DeliverTaskCallbackAsync(context.Background(), task.PrivateData.CallbackUrl, task.PrivateData.CallbackSecret, service.BuildTaskCallbackPayload(task))
+		}
 	}
 
 	// OpenAI Video API 由调用者的 ConvertToOpenAIVideo 分支处理
