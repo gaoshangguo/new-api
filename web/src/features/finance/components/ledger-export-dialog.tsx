@@ -108,13 +108,21 @@ export function LedgerExportDialog(props: LedgerExportDialogProps) {
     }
     setIsExporting(true)
     try {
-      const blob = isCompanyScoped
-        ? isConsumption
-          ? await exportSalesCustomerConsumptions(props.companyId!, payload)
-          : await exportSalesCustomerLedgers(props.companyId!, payload)
-        : isConsumption
+      let blob: Blob
+      if (isCompanyScoped) {
+        const companyId = props.companyId
+        if (companyId === undefined) {
+          toast.error(t('Company is required'))
+          return
+        }
+        blob = isConsumption
+          ? await exportSalesCustomerConsumptions(companyId, payload)
+          : await exportSalesCustomerLedgers(companyId, payload)
+      } else {
+        blob = isConsumption
           ? await exportBusinessConsumptions(payload)
           : await exportBalanceLedgers(payload)
+      }
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
