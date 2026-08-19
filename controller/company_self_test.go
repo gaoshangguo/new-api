@@ -28,7 +28,7 @@ func setupSelfCompanyTest(t *testing.T) *gorm.DB {
 	model.DB = db
 	model.LOG_DB = db
 	common.RedisEnabled = false
-	require.NoError(t, db.Create(&model.User{Id: 42, Username: "alice"}).Error)
+	require.NoError(t, db.Create(&model.User{Id: 42, Username: "alice", AffCode: "aff_alice"}).Error)
 	t.Cleanup(func() {
 		model.DB = previousDB
 		model.LOG_DB = previousLogDB
@@ -95,7 +95,7 @@ func TestUpdateSelfCompanyPreservesOperationalRateLimits(t *testing.T) {
 // P0-02：非企业主不能自助更新他人企业。
 func TestUpdateSelfCompanyRejectsNonOwner(t *testing.T) {
 	db := setupSelfCompanyTest(t)
-	require.NoError(t, db.Create(&model.User{Id: 43, Username: "mallory"}).Error)
+	require.NoError(t, db.Create(&model.User{Id: 43, Username: "mallory", AffCode: "aff_mallory"}).Error)
 	require.NoError(t, db.Create(&model.Company{Name: "Owned Co", OwnerUserId: 42}).Error)
 	var saved model.Company
 	require.NoError(t, db.First(&saved).Error)
