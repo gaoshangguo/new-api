@@ -72,7 +72,7 @@ func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.M
 		return false, errors.New("Midjourney task must be persisted before billing")
 	}
 
-	result, billingErr := postConsumeQuotaWithResult(relayInfo, task.Quota, 0, true)
+	result, billingErr := postConsumeQuotaWithResult(relayInfo, task.Quota, 0, true, true)
 	if !result.FundingApplied {
 		task.Quota = 0
 		task.TokenId = 0
@@ -95,11 +95,15 @@ func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.M
 
 // RefundMidjourneyQuota reverses every accounting element recorded for a billed legacy task.
 func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason string) bool {
-	quota := task.Quota
-	if quota == 0 {
+	if task == nil || task.Quota == 0 {
 		return true
 	}
+	if task.Quota < 0 || task.Quota > common.MaxQuota {
+		logger.LogError(ctx, fmt.Sprintf("invalid Midjourney refund quota (task=%s, quota=%d)", task.MjId, task.Quota))
+		return false
+	}
 
+	quota := task.Quota
 	if err := model.IncreaseUserQuota(task.UserId, quota, false); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("退还 Midjourney 用户额度失败 task %s: %s", task.MjId, err.Error()))
 		return false
@@ -111,6 +115,20 @@ func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason s
 			if err := model.IncreaseTokenQuota(task.TokenId, tokenKey, quota); err != nil {
 				logger.LogWarn(ctx, fmt.Sprintf("退还 Midjourney 令牌额度失败 task %s: %s", task.MjId, err.Error()))
 			}
+		}
+
+		// 项目预算：任务提交时记录了一条正向消耗投影，退款后必须追加等额负向
+		// 投影，否则项目预算被永久占用。ID 稳定，追加式调整幂等。
+		adjustmentRequestID := "mj-refund-" + common.Sha1([]byte(fmt.Sprintf("%d:%s:%s", task.Id, task.MjId, task.RequestId)))
+		if err := model.RecordBusinessConsumptionAdjustment(model.RecordBusinessConsumptionAdjustmentParams{
+			RequestId: adjustmentRequestID,
+			UserId:    task.UserId,
+			TokenId:   task.TokenId,
+			Quota:     -quota,
+			ChannelId: task.ChannelId,
+			ModelName: CovertMjpActionToModelName(task.Action),
+		}); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("Midjourney refund project consumption adjustment failed task %s: %s", task.MjId, err.Error()))
 		}
 	}
 
@@ -126,8 +144,9 @@ func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason s
 		Quota:     quota,
 		TokenId:   task.TokenId,
 		Other: map[string]interface{}{
-			"task_id": task.MjId,
-			"reason":  reason,
+			"task_id":    task.MjId,
+			"request_id": task.RequestId,
+			"reason":     reason,
 		},
 	})
 

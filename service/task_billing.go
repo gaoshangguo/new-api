@@ -237,67 +237,6 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	return true
 }
 
-// RefundMidjourneyQuota returns a charged Midjourney task after the polling
-// worker has atomically transitioned it to failure. Midjourney uses the wallet
-// billing path, so unlike generic tasks it has no subscription funding source.
-func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason string) bool {
-	if task == nil || task.Quota == 0 {
-		return true
-	}
-	if task.Quota < 0 || task.Quota > common.MaxQuota {
-		logger.LogError(ctx, fmt.Sprintf("invalid Midjourney refund quota (task=%s, quota=%d)", task.MjId, task.Quota))
-		return false
-	}
-
-	quota := task.Quota
-	if err := model.IncreaseUserQuota(task.UserId, quota, false); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("failed to refund Midjourney wallet quota (task=%s): %s", task.MjId, err.Error()))
-		return false
-	}
-
-	if task.TokenId > 0 {
-		tokenKey := resolveTokenKey(ctx, task.TokenId, task.MjId)
-		if tokenKey != "" {
-			if err := model.IncreaseTokenQuota(task.TokenId, tokenKey, quota); err != nil {
-				logger.LogWarn(ctx, fmt.Sprintf("failed to refund Midjourney token quota (task=%s): %s", task.MjId, err.Error()))
-			}
-		}
-
-		adjustmentRequestID := "mj-refund-" + common.Sha1([]byte(fmt.Sprintf("%d:%s:%s", task.Id, task.MjId, task.RequestId)))
-		if err := model.RecordBusinessConsumptionAdjustment(model.RecordBusinessConsumptionAdjustmentParams{
-			RequestId: adjustmentRequestID,
-			UserId:    task.UserId,
-			TokenId:   task.TokenId,
-			Quota:     -quota,
-			ChannelId: task.ChannelId,
-			ModelName: CovertMjpActionToModelName(task.Action),
-		}); err != nil {
-			logger.LogError(ctx, fmt.Sprintf("Midjourney refund project consumption adjustment failed task %s: %s", task.MjId, err.Error()))
-		}
-	}
-
-	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-		UserId:    task.UserId,
-		LogType:   model.LogTypeRefund,
-		Content:   "",
-		ChannelId: task.ChannelId,
-		ModelName: CovertMjpActionToModelName(task.Action),
-		Quota:     quota,
-		TokenId:   task.TokenId,
-		Other: map[string]interface{}{
-			"task_id":    task.MjId,
-			"request_id": task.RequestId,
-			"reason":     reason,
-		},
-	})
-
-	task.Quota = 0
-	if err := task.UpdateQuota(); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("Midjourney refund succeeded but clearing quota failed task %s: %s", task.MjId, err.Error()))
-	}
-	return true
-}
-
 // RecalculateTaskQuota 通用的异步差额结算。
 // actualQuota 是任务完成后的实际应扣额度，与预扣额度 (task.Quota) 做差额结算。
 // reason 用于日志记录（例如 "token重算" 或 "adaptor调整"）。

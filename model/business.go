@@ -736,7 +736,7 @@ func approveManualCreditRequest(id int, expectedStatus string, escalationReason 
 	if err != nil {
 		return nil, err
 	}
-	if err := updateUserQuotaCache(ledger.UserId, ledger.BalanceAfter); err != nil {
+	if err := updateUserCacheField(ledger.UserId, "Quota", ledger.BalanceAfter); err != nil {
 		// The committed ledger and quota are authoritative. A cache refresh failure
 		// must not make a successful approval appear failed to a caller.
 		common.SysError("failed to refresh user quota cache after manual adjustment: " + err.Error())

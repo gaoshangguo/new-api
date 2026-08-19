@@ -26,7 +26,6 @@ type Midjourney struct {
 	Buttons     string `json:"buttons"`
 	Properties  string `json:"properties"`
 
-	TokenId          int `json:"-" gorm:"default:0"`
 	BillingChannelId int `json:"-" gorm:"default:0"`
 	// CallbackUrl / CallbackSecret 为客户提供的任务完成回调（P0-09），
 	// 语义同 TaskPrivateData.CallbackUrl/CallbackSecret。
