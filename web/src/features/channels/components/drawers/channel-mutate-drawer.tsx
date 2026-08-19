@@ -55,6 +55,7 @@ import { type SubmitErrorHandler, useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { DateTimePicker } from '@/components/datetime-picker'
 import {
   sideDrawerContentClassName,
   sideDrawerFooterClassName,
@@ -3083,6 +3084,51 @@ export function ChannelMutateDrawer({
                                 }}
                               />
 
+                              <FormField
+                                control={form.control}
+                                name='key_expires_at'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>{t('Key Expires At')}</FormLabel>
+                                    <FormControl>
+                                      <DateTimePicker
+                                        value={field.value ?? undefined}
+                                        onChange={field.onChange}
+                                        placeholder={t('Never expires')}
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'When set, the system warns before the channel key expires.'
+                                      )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name='region'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>{t('Region')}</FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        placeholder={t('e.g. cn-east, us-west')}
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'Requests with a matching X-API-Region header prefer this channel. Leave empty for the default routing.'
+                                      )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
                               {currentType === 57 && (
                                 <div className='border-border/60 flex flex-col gap-3 border-y py-4'>
                                   <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
@@ -3738,6 +3784,71 @@ export function ChannelMutateDrawer({
                                 </FormItem>
                               )}
                             />
+                          </div>
+
+                          <div className='flex flex-col gap-4 border-t pt-4'>
+                            <SubHeading
+                              title={t('Rate Limits')}
+                              icon={
+                                <SlidersHorizontal className='h-3.5 w-3.5' />
+                              }
+                              iconTone='info'
+                            />
+                            <div className='grid gap-4 sm:grid-cols-2'>
+                              <FormField
+                                control={form.control}
+                                name='rate_limit_rpm'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>
+                                      {t('Channel Rate Limit RPM')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min='0'
+                                        placeholder='0'
+                                        {...field}
+                                        onChange={(e) =>
+                                          field.onChange(Number(e.target.value))
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t('0 means unlimited')}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name='rate_limit_tpm'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>
+                                      {t('Channel Rate Limit TPM')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min='0'
+                                        placeholder='0'
+                                        {...field}
+                                        onChange={(e) =>
+                                          field.onChange(Number(e.target.value))
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t('0 means unlimited')}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
                           </div>
 
                           <div

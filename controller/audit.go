@@ -29,6 +29,11 @@ var auditContentTemplates = map[string]string{
 	"user.passkey_delete":   "Deleted a passkey",
 	"user.reset_passkey":    "Reset the user passkey",
 	"option.update":         "Updated system setting ${key}",
+	"price_version.create":  "Created price version ${version_id} (status ${status})",
+	"price_version.apply":   "Applied price version ${version_id}",
+	"model_alias.create":    "Created model alias ${alias_name} (ID: ${id})",
+	"model_alias.update":    "Updated model alias ${alias_name} (ID: ${id}, version ${version})",
+	"model_alias.delete":    "Deleted model alias (ID: ${id})",
 
 	"channel.create":             "Created channel ${name} (type ${type}, count ${count})",
 	"channel.update":             "Updated channel ${name} (ID: ${id})",
@@ -97,6 +102,14 @@ func recordManageAudit(c *gin.Context, action string, params map[string]interfac
 // recordManageAuditFor 记录一条管理审计日志，日志归属于操作者；targetUserId
 // 只表示被操作用户，用于在结构化参数中保留目标上下文。
 func recordManageAuditFor(c *gin.Context, targetUserId int, action string, params map[string]interface{}) {
+	recordManageAuditForWithDiff(c, targetUserId, action, params, nil, nil)
+}
+
+// recordManageAuditForWithDiff 在 recordManageAuditFor 基础上附带操作前后值
+// （P0-26 审计前后值）：before/after 序列化为紧凑 JSON 写入
+// Other.audit_info.before_value / after_value，供运营审计页结构化展示。
+// 敏感字段（密钥等）不得传入 before/after，由调用方过滤。
+func recordManageAuditForWithDiff(c *gin.Context, targetUserId int, action string, params map[string]interface{}, before, after interface{}) {
 	if params == nil {
 		params = map[string]interface{}{}
 	}
@@ -104,7 +117,17 @@ func recordManageAuditFor(c *gin.Context, targetUserId int, action string, param
 	if _, ok := params["target_user_id"]; !ok && targetUserId > 0 && targetUserId != operatorUserId {
 		params["target_user_id"] = targetUserId
 	}
-	model.RecordOperationAuditLog(operatorUserId, auditContentEN(action, params), c.ClientIP(), action, params, auditOperatorInfo(c), nil)
+	var auditInfo map[string]interface{}
+	if before != nil || after != nil {
+		auditInfo = map[string]interface{}{}
+		if before != nil {
+			auditInfo["before_value"] = common.GetJsonString(before)
+		}
+		if after != nil {
+			auditInfo["after_value"] = common.GetJsonString(after)
+		}
+	}
+	model.RecordOperationAuditLog(operatorUserId, auditContentEN(action, params), c.ClientIP(), action, params, auditOperatorInfo(c), auditInfo)
 	markAuditLogged(c)
 }
 

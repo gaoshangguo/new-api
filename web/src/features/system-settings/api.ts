@@ -20,8 +20,14 @@ import { api } from '@/lib/api'
 
 import type {
   ConfirmPaymentComplianceResponse,
+  CreatePriceVersionRequest,
   FetchUpstreamRatiosRequest,
   LogCleanupTask,
+  ModelAliasListResponse,
+  ModelAliasRequest,
+  ModelAliasResponse,
+  PriceVersionDetailResponse,
+  PriceVersionListResponse,
   SystemOptionsResponse,
   SystemTaskListResponse,
   SystemTaskResponse,
@@ -88,6 +94,63 @@ export async function resetModelRatios() {
   const res = await api.post<UpdateOptionResponse>(
     '/api/option/rest_model_ratio'
   )
+  return res.data
+}
+
+export async function listPriceVersions() {
+  const res = await api.get<PriceVersionListResponse>('/api/price_version/', {
+    params: { page: 0, page_size: 200 },
+  })
+  return res.data
+}
+
+export async function getPriceVersion(versionId: number) {
+  const res = await api.get<PriceVersionDetailResponse>(
+    `/api/price_version/${versionId}`
+  )
+  return res.data
+}
+
+export async function createPriceVersion(
+  request: CreatePriceVersionRequest
+) {
+  const res = await api.post<PriceVersionDetailResponse>(
+    '/api/price_version/',
+    request
+  )
+  return res.data
+}
+
+export async function applyPriceVersionNow(
+  versionId: number,
+  reason?: string
+) {
+  const res = await api.post<UpdateOptionResponse>(
+    `/api/price_version/${versionId}/apply`,
+    reason ? { reason } : {}
+  )
+  return res.data
+}
+
+export async function listModelAliases() {
+  const res = await api.get<ModelAliasListResponse>('/api/model_alias/')
+  return res.data
+}
+
+export async function createModelAlias(request: ModelAliasRequest) {
+  const res = await api.post<ModelAliasResponse>('/api/model_alias/', request)
+  return res.data
+}
+
+export async function updateModelAlias(id: number, request: ModelAliasRequest) {
+  const res = await api.put<ModelAliasResponse>(`/api/model_alias/${id}`, request)
+  return res.data
+}
+
+export async function deleteModelAlias(id: number, reason?: string) {
+  const res = await api.delete<UpdateOptionResponse>(`/api/model_alias/${id}`, {
+    data: reason ? { reason } : {},
+  })
   return res.data
 }
 

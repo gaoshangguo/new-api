@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"strconv"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -72,7 +75,9 @@ func GetPricing(c *gin.Context) {
 		"usable_group":       usableGroup,
 		"supported_endpoint": model.GetSupportedEndpointMap(),
 		"auto_groups":        service.GetUserAutoGroup(group),
-		"pricing_version":    "a42d372ccf0b5dd13ecf71203521f9d2",
+		"pricing_version":    strconv.Itoa(model.GetCurrentPriceVersionId()),
+		// P0-13 适配器能力声明：渠道类型 → 工具/视觉/思考/流式/超时/计费能力。
+		"capabilities": channel.GetChannelCapabilitiesMap(),
 	})
 }
 
@@ -94,6 +99,8 @@ func ResetModelRatio(c *gin.Context) {
 		})
 		return
 	}
+	// P0-28 价格版本：重置模型倍率同样视为一次改价，生成审计快照版本。
+	recordPriceOptionVersion(c, "ModelRatio")
 	c.JSON(200, gin.H{
 		"success": true,
 		"message": "重置模型倍率成功",

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"github.com/gin-gonic/gin"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -111,10 +112,21 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
+func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string, allowedChannelIDs ...map[int]struct{}) (*Channel, error) {
+	return GetRandomSatisfiedChannelWithRegion(group, model, retry, requestPath, "", nil, allowedChannelIDs...)
+}
+
+// GetRandomSatisfiedChannelWithRegion 在 GetRandomSatisfiedChannel 基础上支持
+// P0-14 地区维度（region 非空且启用地区路由时按渠道 Region 过滤候选，
+// 无匹配渠道回退全部候选）与 P0-15 结构化路由轨迹（ctx 非空时记录候选）。
+func GetRandomSatisfiedChannelWithRegion(group string, model string, retry int, requestPath string, region string, c *gin.Context, allowedChannelIDs ...map[int]struct{}) (*Channel, error) {
+	var allowed map[int]struct{}
+	if len(allowedChannelIDs) > 0 {
+		allowed = allowedChannelIDs[0]
+	}
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, requestPath)
+		return GetChannel(group, model, retry, requestPath, allowed)
 	}
 
 	channelSyncLock.RLock()
@@ -122,15 +134,33 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 
 	// First, try to find channels with the exact model name.
 	channels := filterChannelsByRequestPathAndModel(group2model2channels[group][model], requestPath, model)
+	channels = filterChannelsByAllowedIDs(channels, allowed)
 
 	// If no channels found, try to find channels with the normalized model name.
 	if len(channels) == 0 {
 		normalizedModel := ratio_setting.FormatMatchingModelName(model)
 		channels = filterChannelsByRequestPathAndModel(group2model2channels[group][normalizedModel], requestPath, model)
+		channels = filterChannelsByAllowedIDs(channels, allowed)
 	}
 
 	if len(channels) == 0 {
 		return nil, nil
+	}
+
+	// P0-15 结构化路由轨迹：记录过滤后的候选渠道集合。
+	if c != nil {
+		InitRoutingTrace(c)
+		RecordRoutingCandidates(c, channels)
+	}
+
+	// P0-14 地区维度：启用时按请求地区过滤候选；无匹配则回退全部候选。
+	if region != "" && GetChannelRoutingSetting().Enabled && GetChannelRoutingSetting().UseRegion {
+		channels = FilterChannelsByRegion(channels, region, func(channelID int) *Channel {
+			if channel, ok := channelsIDM[channelID]; ok {
+				return channel
+			}
+			return nil
+		})
 	}
 
 	if len(channels) == 1 {
@@ -191,21 +221,47 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 		smoothingFactor = 100
 	}
 
-	// Calculate the total weight of all channels up to endIdx
-	totalWeight := sumWeight * smoothingFactor
+	// P0-14 延迟/成功率维度：计算多维路由加权因子（无数据为 1.0）。
+	routingFactors := AdjustRoutingWeights(targetChannels)
+
+	// Calculate the total effective weight: the sum of each channel's base
+	// weight scaled by its routing factor. Using the factored total (instead
+	// of the base sum) keeps the random draw within the same support as the
+	// per-channel subtraction below, so the loop always terminates on a
+	// channel even when some routing factors exceed 1.
+	totalWeight := 0.0
+	for i, channel := range targetChannels {
+		totalWeight += float64(channel.GetWeight()*smoothingFactor+smoothingAdjustment) * routingFactors[i]
+	}
 
 	// Generate a random value in the range [0, totalWeight)
-	randomWeight := rand.Intn(totalWeight)
+	randomWeight := rand.Float64() * totalWeight
 
 	// Find a channel based on its weight
-	for _, channel := range targetChannels {
-		randomWeight -= channel.GetWeight()*smoothingFactor + smoothingAdjustment
+	for i, channel := range targetChannels {
+		randomWeight -= float64(channel.GetWeight()*smoothingFactor+smoothingAdjustment) * routingFactors[i]
 		if randomWeight < 0 {
 			return channel, nil
 		}
 	}
 	// return null if no channel is not found
 	return nil, errors.New("channel not found")
+}
+
+// filterChannelsByAllowedIDs applies an optional project channel allow-list.
+// nil means unrestricted, while a non-nil empty map is an explicit deny-all
+// policy. It never mutates the shared memory-cache slice.
+func filterChannelsByAllowedIDs(channels []int, allowed map[int]struct{}) []int {
+	if allowed == nil {
+		return channels
+	}
+	filtered := make([]int, 0, len(channels))
+	for _, channelID := range channels {
+		if _, ok := allowed[channelID]; ok {
+			filtered = append(filtered, channelID)
+		}
+	}
+	return filtered
 }
 
 // filterChannelsByRequestPathAndModel restricts candidates by request path and

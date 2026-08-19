@@ -64,6 +64,12 @@ const (
 	ErrorCodeReadRequestBodyFailed ErrorCode = "read_request_body_failed"
 	ErrorCodeConvertRequestFailed  ErrorCode = "convert_request_failed"
 	ErrorCodeAccessDenied          ErrorCode = "access_denied"
+	// ErrorCodeUnauthorized is the stable relay error code for authentication
+	// failures (invalid/expired tokens, disabled users) returned with HTTP 401.
+	ErrorCodeUnauthorized ErrorCode = "unauthorized"
+	// ErrorCodeRateLimitExceeded is the stable relay error code for rate-limit
+	// rejections (scope/concurrency/channel RPM-TPM limits) returned with HTTP 429.
+	ErrorCodeRateLimitExceeded ErrorCode = "rate_limit_exceeded"
 
 	// request error
 	ErrorCodeBadRequestBody ErrorCode = "bad_request_body"

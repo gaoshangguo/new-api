@@ -26,6 +26,42 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func ensureMidjourneyRequestID(c *gin.Context, info *relaycommon.RelayInfo) string {
+	requestID := info.RequestId
+	if requestID == "" {
+		requestID = c.GetString(common.RequestIdKey)
+	}
+	if requestID == "" {
+		requestID = common.NewRequestId()
+	}
+	info.RequestId = requestID
+	c.Set(common.RequestIdKey, requestID)
+	return requestID
+}
+
+// resolveMidjourneyCallback 解析客户级任务回调（P0-09）：
+// URL 优先取 X-New-Api-Callback-Url 请求头，其次取 MJ 协议 notifyHook 字段；
+// 签名密钥取 X-New-Api-Callback-Secret 请求头。仅在 MjNotifyEnabled 关闭时
+// 由网关接管回调（开启时 notifyHook 仍按旧行为转发上游直连客户，避免重复投递）。
+func resolveMidjourneyCallback(c *gin.Context, notifyHook string) (url string, secret string, err error) {
+	if setting.MjNotifyEnabled {
+		return "", "", nil
+	}
+	url = strings.TrimSpace(c.GetHeader("X-New-Api-Callback-Url"))
+	if url == "" {
+		url = strings.TrimSpace(notifyHook)
+	}
+	secret = strings.TrimSpace(c.GetHeader("X-New-Api-Callback-Secret"))
+	return service.NormalizeMidjourneyCallback(url, secret)
+}
+
+func isMidjourneyTerminal(task *model.Midjourney) bool {
+	if task == nil {
+		return false
+	}
+	return task.Progress == "100%" && (task.Status == "SUCCESS" || task.Status == "FAILURE")
+}
+
 func RelayMidjourneyImage(c *gin.Context) {
 	taskId := c.Param("id")
 	midjourneyTask := model.GetByOnlyMJId(taskId)
@@ -117,6 +153,7 @@ func RelayMidjourneyNotify(c *gin.Context) *dto.MidjourneyResponse {
 			Result:      "",
 		}
 	}
+	preStatus := midjourneyTask.Status
 	midjourneyTask.Progress = midjRequest.Progress
 	midjourneyTask.PromptEn = midjRequest.PromptEn
 	midjourneyTask.State = midjRequest.State
@@ -129,12 +166,20 @@ func RelayMidjourneyNotify(c *gin.Context) *dto.MidjourneyResponse {
 	midjourneyTask.VideoUrls = string(videoUrlsStr)
 	midjourneyTask.Status = midjRequest.Status
 	midjourneyTask.FailReason = midjRequest.FailReason
-	err = midjourneyTask.Update()
+	shouldRefund := false
+	if (midjourneyTask.Progress != "100%" && midjourneyTask.FailReason != "") || (midjourneyTask.Progress == "100%" && midjourneyTask.Status == "FAILURE") {
+		midjourneyTask.Progress = "100%"
+		shouldRefund = preStatus != "FAILURE" && midjourneyTask.Quota > 0
+	}
+	won, err := midjourneyTask.UpdateWithStatus(preStatus)
 	if err != nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,
 			Description: "update_midjourney_task_failed",
 		}
+	}
+	if won && shouldRefund {
+		service.RefundMidjourneyQuota(c.Request.Context(), midjourneyTask, "upstream task failed")
 	}
 
 	return nil
@@ -197,6 +242,13 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 	}
 
 	info.InitChannelMeta(c)
+	requestID := ensureMidjourneyRequestID(c, info)
+
+	// P0-09 客户级任务回调：swap-face 无 notifyHook 字段，仅支持请求头。
+	callbackURL, callbackSecret, callbackErr := resolveMidjourneyCallback(c, "")
+	if callbackErr != nil {
+		return service.MidjourneyErrorWrapper(constant.MjRequestError, "invalid_callback_url")
+	}
 
 	if swapFaceRequest.SourceBase64 == "" || swapFaceRequest.TargetBase64 == "" {
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, "sour_base64_and_target_base64_is_required")
@@ -235,6 +287,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 	midjResponse := &mjResp.Response
 	midjourneyTask := &model.Midjourney{
 		UserId:      info.UserId,
+		RequestId:   requestID,
 		Code:        midjResponse.Code,
 		Action:      constant.MjActionSwapFace,
 		MjId:        midjResponse.Result,
@@ -250,6 +303,9 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 		Progress:    "0%",
 		FailReason:  "",
 		ChannelId:   c.GetInt("channel_id"),
+		// P0-09 客户级任务回调
+		CallbackUrl:    callbackURL,
+		CallbackSecret: callbackSecret,
 	}
 	billingPrepared, billingErr := service.PrepareMidjourneyTaskBilling(
 		info,
@@ -286,6 +342,13 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 		model.UpdateUserUsedQuotaAndRequestCount(info.UserId, midjourneyTask.Quota)
 		model.UpdateChannelUsedQuota(billingChannelId, midjourneyTask.Quota)
 	}
+	if midjourneyTask.CallbackUrl != "" && isMidjourneyTerminal(midjourneyTask) {
+		// P0-09 幂等：同一上游任务此前已挂接回调（如 code:21 重复提交）时不再重复投递。
+		duplicated, _ := model.HasMidjourneyCallbackDelivery(midjourneyTask.MjId, midjourneyTask.Id)
+		if !duplicated {
+			service.DeliverTaskCallbackAsync(c.Request.Context(), midjourneyTask.CallbackUrl, midjourneyTask.CallbackSecret, service.BuildMidjourneyCallbackPayload(midjourneyTask))
+		}
+	}
 	c.Writer.WriteHeader(mjResp.StatusCode)
 	respBody, err := json.Marshal(midjResponse)
 	if err != nil {
@@ -311,6 +374,10 @@ func RelayMidjourneyTaskImageSeed(c *gin.Context) *dto.MidjourneyResponse {
 	}
 	if channel.Status != common.ChannelStatusEnabled {
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, "该任务所属渠道已被禁用")
+	}
+	projectRuntime, _ := common.GetContextKeyType[*model.BusinessProjectRuntimePolicy](c, constant.ContextKeyBusinessProjectRuntime)
+	if projectRuntime != nil && !projectRuntime.AllowsChannel(channel.Id) {
+		return service.MidjourneyErrorWrapper(constant.MjRequestError, "project_channel_forbidden")
 	}
 	c.Set("channel_id", originTask.ChannelId)
 	c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.Key))
@@ -405,6 +472,13 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	}
 
 	relayInfo.InitChannelMeta(c)
+	requestID := ensureMidjourneyRequestID(c, relayInfo)
+
+	// P0-09 客户级任务回调：提交时解析并校验回调配置（SSRF 防护）。
+	callbackURL, callbackSecret, callbackErr := resolveMidjourneyCallback(c, midjRequest.NotifyHook)
+	if callbackErr != nil {
+		return service.MidjourneyErrorWrapper(constant.MjRequestError, "invalid_callback_url")
+	}
 
 	if relayInfo.RelayMode == relayconstant.RelayModeMidjourneyAction { // midjourney plus，需要从customId中获取任务信息
 		mjErr := service.CoverPlusActionToNormalAction(&midjRequest)
@@ -486,6 +560,10 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			if channel.Status != common.ChannelStatusEnabled {
 				return service.MidjourneyErrorWrapper(constant.MjRequestError, "该任务所属渠道已被禁用")
 			}
+			projectRuntime, _ := common.GetContextKeyType[*model.BusinessProjectRuntimePolicy](c, constant.ContextKeyBusinessProjectRuntime)
+			if projectRuntime != nil && !projectRuntime.AllowsChannel(channel.Id) {
+				return service.MidjourneyErrorWrapper(constant.MjRequestError, "project_channel_forbidden")
+			}
 			c.Set("base_url", channel.GetBaseURL())
 			c.Set("channel_id", originTask.ChannelId)
 			c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.Key))
@@ -554,6 +632,8 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	// other: 提交错误，description为错误描述
 	midjourneyTask := &model.Midjourney{
 		UserId:      relayInfo.UserId,
+		TokenId:     relayInfo.TokenId,
+		RequestId:   requestID,
 		Code:        midjResponse.Code,
 		Action:      midjRequest.Action,
 		MjId:        midjResponse.Result,
@@ -569,6 +649,9 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		Progress:    "0%",
 		FailReason:  "",
 		ChannelId:   c.GetInt("channel_id"),
+		// P0-09 客户级任务回调
+		CallbackUrl:    callbackURL,
+		CallbackSecret: callbackSecret,
 	}
 	if midjResponse.Code == 3 {
 		//无实例账号自动禁用渠道（No available account instance）
@@ -650,6 +733,15 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		})
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, midjourneyTask.Quota)
 		model.UpdateChannelUsedQuota(billingChannelId, midjourneyTask.Quota)
+	}
+
+	// P0-09：提交即达终态（例如上游返回已完成的 code:21/1 结果）时直接投递回调。
+	if midjourneyTask.CallbackUrl != "" && isMidjourneyTerminal(midjourneyTask) {
+		// P0-09 幂等：同一上游任务此前已挂接回调（如 code:21 重复提交）时不再重复投递。
+		duplicated, _ := model.HasMidjourneyCallbackDelivery(midjourneyTask.MjId, midjourneyTask.Id)
+		if !duplicated {
+			service.DeliverTaskCallbackAsync(c.Request.Context(), midjourneyTask.CallbackUrl, midjourneyTask.CallbackSecret, service.BuildMidjourneyCallbackPayload(midjourneyTask))
+		}
 	}
 
 	if midjResponse.Code == 22 { //22-排队中，说明任务已存在

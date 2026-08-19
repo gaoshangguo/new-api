@@ -12,7 +12,7 @@ import (
 
 var StartTime = time.Now().Unix() // unit: second
 var Version = "v0.0.0"            // this hard coding will be replaced automatically when building, no need to manually change
-var SystemName = "New API"
+var SystemName = "灵狐科技"
 var Footer = ""
 var Logo = ""
 var TopUpLink = ""
@@ -218,6 +218,12 @@ var (
 	SearchRateLimitEnable         = true
 	SearchRateLimitNum            = 10
 	SearchRateLimitDuration int64 = 60
+
+	// ModelRateLimitRPM/TPM are the global model-level rate limits applied to
+	// every relay request (env: MODEL_RATE_LIMIT_RPM / MODEL_RATE_LIMIT_TPM,
+	// 0 = unlimited).
+	ModelRateLimitRPM int   // 模型级每分钟请求数（0=不限）
+	ModelRateLimitTPM int64 // 模型级每分钟 token 预估（0=不限）
 )
 
 var RateLimitKeyExpirationDuration = 20 * time.Minute

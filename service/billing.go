@@ -1,10 +1,13 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
@@ -18,6 +21,14 @@ const (
 // PreConsumeBilling 根据用户计费偏好创建 BillingSession 并执行预扣费。
 // 会话存储在 relayInfo.Billing 上，供后续 Settle / Refund 使用。
 func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	if relayInfo == nil {
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("relay info is required"),
+			types.ErrorCodeInvalidRequest,
+			http.StatusBadRequest,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
 	if relayInfo != nil && relayInfo.QuotaClamp != nil {
 		return types.NewErrorWithStatusCode(
 			relayInfo.QuotaClamp,
@@ -34,8 +45,38 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 			types.ErrOptionWithSkipRetry(),
 		)
 	}
+
+	requestID := relayInfo.RequestId
+	if requestID == "" {
+		requestID = c.GetString(common.RequestIdKey)
+	}
+	if requestID == "" {
+		requestID = common.NewRequestId()
+	}
+	relayInfo.RequestId = requestID
+	c.Set(common.RequestIdKey, requestID)
+
+	if err := model.ReserveBusinessProjectBudget(relayInfo.TokenId, relayInfo.UserId, requestID, preConsumedQuota); err != nil {
+		if errors.Is(err, model.ErrBusinessProjectDisabled) ||
+			errors.Is(err, model.ErrBusinessProjectTokenBinding) ||
+			errors.Is(err, model.ErrBusinessProjectLimitConfiguration) ||
+			errors.Is(err, model.ErrBusinessProjectBudgetExceeded) ||
+			errors.Is(err, model.ErrBusinessProjectBudgetEstimate) {
+			return types.NewErrorWithStatusCode(
+				err,
+				types.ErrorCodeAccessDenied,
+				http.StatusForbidden,
+				types.ErrOptionWithSkipRetry(),
+				types.ErrOptionWithNoRecordErrorLog(),
+			)
+		}
+		return types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+	}
 	session, apiErr := NewBillingSession(c, relayInfo, preConsumedQuota)
 	if apiErr != nil {
+		if err := model.ReleaseBusinessProjectBudgetReservation(relayInfo.TokenId, relayInfo.UserId, requestID); err != nil {
+			common.SysError("failed to release project budget reservation after pre-consume failure: " + err.Error())
+		}
 		return apiErr
 	}
 	relayInfo.Billing = session

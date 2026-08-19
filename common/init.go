@@ -133,6 +133,8 @@ func InitEnv() {
 	SearchRateLimitEnable = GetEnvOrDefaultBool("SEARCH_RATE_LIMIT_ENABLE", true)
 	SearchRateLimitNum = GetEnvOrDefault("SEARCH_RATE_LIMIT", 10)
 	SearchRateLimitDuration = int64(GetEnvOrDefault("SEARCH_RATE_LIMIT_DURATION", 60))
+	ModelRateLimitRPM = GetEnvOrDefault("MODEL_RATE_LIMIT_RPM", 0)
+	ModelRateLimitTPM = int64(GetEnvOrDefault("MODEL_RATE_LIMIT_TPM", 0))
 	initConstantEnv()
 }
 

@@ -85,6 +85,8 @@ type User struct {
 	Role             int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
 	Status           int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
 	Email            string                     `json:"email" gorm:"index" validate:"max=50"`
+	// Phone 手机号（P0-03）：支持手机号登录；index 允许空值重复（未绑定时为空串）。
+	Phone string `json:"phone" gorm:"size:32;index" validate:"max=32"`
 	GitHubId         string                     `json:"github_id" gorm:"column:github_id;index"`
 	DiscordId        string                     `json:"discord_id" gorm:"column:discord_id;index"`
 	OidcId           string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
@@ -93,6 +95,7 @@ type User struct {
 	VerificationCode string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
 	AccessToken      *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota            int                        `json:"quota" gorm:"type:int;default:0"`
+	FrozenQuota      int                        `json:"frozen_quota" gorm:"type:int;default:0"`
 	UsedQuota        int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
 	RequestCount     int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
 	Group            string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
@@ -993,8 +996,8 @@ func (user *User) ValidateAndFill() (err error) {
 	if username == "" || password == "" {
 		return ErrUserEmptyCredentials
 	}
-	// find by username or email
-	err = DB.Where("username = ? OR email = ?", username, username).First(user).Error
+	// find by username / email / phone (P0-03)
+	err = DB.Where("username = ? OR email = ? OR phone = ?", username, username, username).First(user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrInvalidCredentials
@@ -1448,4 +1451,17 @@ func RootUserExists() bool {
 		return false
 	}
 	return true
+}
+
+// IsPhoneTaken 判断手机号是否已被其他用户注册（P0-03）。
+func IsPhoneTaken(phone string) (bool, error) {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return false, nil
+	}
+	var count int64
+	if err := DB.Model(&User{}).Where("phone = ?", phone).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

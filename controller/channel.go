@@ -1109,11 +1109,11 @@ func UpdateChannel(c *gin.Context) {
 	if channel.Key != "" && channel.Key != originChannel.Key {
 		changedFields = append(changedFields, "key")
 	}
-	recordManageAudit(c, "channel.update", map[string]interface{}{
+	recordManageAuditForWithDiff(c, c.GetInt("id"), "channel.update", map[string]interface{}{
 		"id":             channel.Id,
 		"name":           channel.Name,
 		"changed_fields": changedFields,
-	})
+	}, channelUpdateAuditBefore(originChannel, requestData), channelUpdateAuditAfter(requestData))
 	channel.Key = ""
 	clearChannelInfo(&channel.Channel)
 	c.JSON(http.StatusOK, gin.H{
@@ -2225,4 +2225,56 @@ func OllamaVersion(c *gin.Context) {
 			"version": version,
 		},
 	})
+}
+
+
+// channelUpdateAuditBefore 快照本次渠道更新中被修改的非敏感字段的旧值
+// （P0-26 审计前后值）。敏感字段（密钥/代理/请求头等）不参与快照。
+func channelUpdateAuditBefore(origin *model.Channel, requestData map[string]any) map[string]any {
+	before := map[string]any{}
+	if origin == nil {
+		return nil
+	}
+	originJSON, err := common.Marshal(origin)
+	if err != nil {
+		return nil
+	}
+	var originMap map[string]any
+	if err := common.Unmarshal(originJSON, &originMap); err != nil {
+		return nil
+	}
+	for field := range channelNonSensitiveFields {
+		value, provided := requestData[field]
+		if !provided {
+			continue
+		}
+		originValue, exists := originMap[field]
+		if !exists {
+			continue
+		}
+		if common.GetJsonString(value) == common.GetJsonString(originValue) {
+			continue // 未实际变化
+		}
+		before[field] = originValue
+	}
+	if len(before) == 0 {
+		return nil
+	}
+	return before
+}
+
+// channelUpdateAuditAfter 快照本次渠道更新中被修改的非敏感字段的新值。
+func channelUpdateAuditAfter(requestData map[string]any) map[string]any {
+	after := map[string]any{}
+	for field := range channelNonSensitiveFields {
+		value, provided := requestData[field]
+		if !provided {
+			continue
+		}
+		after[field] = value
+	}
+	if len(after) == 0 {
+		return nil
+	}
+	return after
 }

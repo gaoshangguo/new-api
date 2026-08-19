@@ -4,6 +4,8 @@ type Midjourney struct {
 	Id          int    `json:"id"`
 	Code        int    `json:"code"`
 	UserId      int    `json:"user_id" gorm:"index"`
+	TokenId     int    `json:"-" gorm:"index"`
+	RequestId   string `json:"-" gorm:"size:64;index"`
 	Action      string `json:"action" gorm:"type:varchar(40);index"`
 	MjId        string `json:"mj_id" gorm:"index"`
 	Prompt      string `json:"prompt"`
@@ -26,6 +28,10 @@ type Midjourney struct {
 
 	TokenId          int `json:"-" gorm:"default:0"`
 	BillingChannelId int `json:"-" gorm:"default:0"`
+	// CallbackUrl / CallbackSecret 为客户提供的任务完成回调（P0-09），
+	// 语义同 TaskPrivateData.CallbackUrl/CallbackSecret。
+	CallbackUrl    string `json:"-" gorm:"size:512"`
+	CallbackSecret string `json:"-" gorm:"size:128"`
 }
 
 // TaskQueryParams 用于包含所有搜索条件的结构体，可以根据需求添加更多字段
@@ -147,6 +153,21 @@ func GetByMJIds(userId int, mjIds []string) []*Midjourney {
 	return mj
 }
 
+// HasMidjourneyCallbackDelivery 判断同一上游 MjId 是否已存在带回调地址的记录
+// （P0-09 幂等：code:21 重复提交同一已完成任务时，该任务此前已挂接回调，
+// 不应再次投递回调，避免重复通知）。
+func HasMidjourneyCallbackDelivery(mjId string, excludeId int) (bool, error) {
+	if mjId == "" {
+		return false, nil
+	}
+	var count int64
+	err := DB.Model(&Midjourney{}).Where("mj_id = ? AND id <> ? AND callback_url <> ''", mjId, excludeId).Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func GetMjByuId(id int) *Midjourney {
 	var mj *Midjourney
 	var err error
@@ -184,6 +205,13 @@ func (midjourney *Midjourney) GetBillingChannelId() int {
 		return midjourney.BillingChannelId
 	}
 	return midjourney.ChannelId
+}
+
+// UpdateQuota persists only the refund marker. A failed asynchronous task is
+// eligible for one refund; clearing Quota after the funding refund succeeds
+// keeps a durable retry-safe marker without rewriting task status data.
+func (midjourney *Midjourney) UpdateQuota() error {
+	return DB.Model(&Midjourney{}).Where("id = ?", midjourney.Id).Update("quota", midjourney.Quota).Error
 }
 
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).

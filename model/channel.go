@@ -24,6 +24,9 @@ type Channel struct {
 	Id                 int     `json:"id"`
 	Type               int     `json:"type" gorm:"default:0"`
 	Key                string  `json:"key" gorm:"not null"`
+	KeyExpiresAt       int64   `json:"key_expires_at" gorm:"bigint"` // 密钥到期时间（unix 秒）；0 表示永不过期
+	RateLimitRPM       int     `json:"rate_limit_rpm"`               // 渠道级每分钟请求数（0=不限）
+	RateLimitTPM       int64   `json:"rate_limit_tpm" gorm:"bigint"` // 渠道级每分钟 token 预估（0=不限）
 	OpenAIOrganization *string `json:"openai_organization"`
 	TestModel          *string `json:"test_model"`
 	Status             int     `json:"status" gorm:"default:1"`
@@ -46,6 +49,9 @@ type Channel struct {
 	AutoBan           *int    `json:"auto_ban" gorm:"default:1"`
 	OtherInfo         string  `json:"other_info"`
 	Tag               *string `json:"tag" gorm:"index"`
+	// Region 标识渠道所在地区/线路（P0-14 多维路由维度）。
+	// 请求可通过 X-API-Region 请求头指定地区，无匹配渠道时回退全部渠道。
+	Region            *string `json:"region" gorm:"size:32;index"`
 	Setting           *string `json:"setting" gorm:"type:text"` // 渠道额外设置
 	ParamOverride     *string `json:"param_override" gorm:"type:text"`
 	HeaderOverride    *string `json:"header_override" gorm:"type:text"`
@@ -57,6 +63,60 @@ type Channel struct {
 
 	// cache info
 	Keys []string `json:"-" gorm:"-"`
+}
+
+// 密钥加密存储：写入时加密，读取时解密。历史明文（无 enc:v1: 前缀）保持兼容，
+// 并在下次写入时自动加密；解密失败视为无密钥（fail-closed），绝不静默返回错误。
+func (channel *Channel) BeforeSave(tx *gorm.DB) error {
+	return channel.encryptKeyForPersist(tx)
+}
+
+func (channel *Channel) BeforeUpdate(tx *gorm.DB) error {
+	return channel.encryptKeyForPersist(tx)
+}
+
+func (channel *Channel) AfterFind(_ *gorm.DB) error {
+	if channel.Key == "" || !common.IsEncryptedChannelKey(channel.Key) {
+		return nil
+	}
+	decrypted, err := common.DecryptChannelKey(channel.Key)
+	if err != nil {
+		common.SysError(fmt.Sprintf("channel %d key decrypt failed: %v", channel.Id, err))
+		channel.Key = ""
+		return nil
+	}
+	channel.Key = decrypted
+	return nil
+}
+
+func (channel *Channel) encryptKeyForPersist(tx *gorm.DB) error {
+	if channel.Key == "" || common.IsEncryptedChannelKey(channel.Key) {
+		return nil
+	}
+	// Select 限定列时不包含 key 的更新不得加密内存对象：GORM 钩子接收者
+	// 可能是共享缓存指针（CacheGetChannel 返回值），原地加密会污染缓存，
+	// 导致 relay 路径把密文当明文发往上游。
+	if len(tx.Statement.Selects) > 0 {
+		selectsAll := lo.Contains(tx.Statement.Selects, "*") // Save() 置 ["*"]
+		selectsKey := lo.Contains(tx.Statement.Selects, "key")
+		if !selectsAll && !selectsKey {
+			return nil
+		}
+	}
+	if len(tx.Statement.Omits) > 0 && lo.Contains(tx.Statement.Omits, "key") {
+		return nil
+	}
+	// map 指定列更新不触发钩子写入转换（GORM 直写 Dest 值），加密接收者
+	// 对象既无助于落库也无益于内存，一律跳过；此类调用须自行加密 key 值。
+	if _, ok := tx.Statement.Dest.(map[string]interface{}); ok {
+		return nil
+	}
+	encrypted, err := common.EncryptChannelKey(channel.Key)
+	if err != nil {
+		return err
+	}
+	channel.Key = encrypted
+	return nil
 }
 
 type ChannelInfo struct {
@@ -199,6 +259,9 @@ func (channel *Channel) GetKeys() []string {
 func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 	// If not in multi-key mode, return the original key string directly.
 	if !channel.ChannelInfo.IsMultiKey {
+		if channel.Key == "" {
+			return "", 0, types.NewError(errors.New("no key configured"), types.ErrorCodeChannelNoAvailableKey)
+		}
 		return channel.Key, 0, nil
 	}
 
@@ -1150,4 +1213,37 @@ func CountChannelsGroupByType() (map[int64]int64, error) {
 		counts[r.Type] = r.Count
 	}
 	return counts, nil
+}
+
+// MigrateLegacyChannelKeys encrypts any channel keys still stored in
+// plaintext. Idempotent and batched so large deployments do not block startup.
+// A channel whose save fails is logged and skipped (continue-on-error) so one
+// bad row cannot abort the whole migration; failed rows stay plaintext and are
+// retried on the next startup.
+func MigrateLegacyChannelKeys() (migrated int64, failed int64, err error) {
+	const batchSize = 100
+	offset := 0
+	for {
+		var channels []*Channel
+		err := DB.Where("key <> '' AND key NOT LIKE ?", common.ChannelKeyCipherPrefix+"%").
+			Limit(batchSize).Offset(offset).Find(&channels).Error
+		if err != nil {
+			return migrated, failed, err
+		}
+		if len(channels) == 0 {
+			return migrated, failed, nil
+		}
+		for _, channel := range channels {
+			if err := channel.Save(); err != nil {
+				failed++
+				common.SysError(fmt.Sprintf("migrate channel %d key failed: %v", channel.Id, err))
+				continue
+			}
+			migrated++
+		}
+		if len(channels) < batchSize {
+			return migrated, failed, nil
+		}
+		offset += batchSize
+	}
 }

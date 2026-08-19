@@ -23,7 +23,7 @@ func newAuthzTestDB(t *testing.T) *gorm.DB {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&model.CasbinRule{}, &model.AuthzRole{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.CasbinRule{}, &model.AuthzRole{}))
 	return db
 }
 
@@ -33,15 +33,21 @@ func TestInitSeedsBuiltInRolesAndPoliciesOnce(t *testing.T) {
 	require.NoError(t, Init(db))
 	require.NoError(t, Init(db))
 
-	// root is a superuser role and is granted everything implicitly, so only the
-	// admin baseline is written as explicit policy rows.
+	// Root is a superuser role and is granted everything implicitly. Every
+	// non-superuser built-in role receives only its baseline policy rows.
 	var count int64
 	require.NoError(t, db.Model(&model.CasbinRule{}).Count(&count).Error)
-	assert.Equal(t, int64(len(PermissionsForRole(BuiltInRoleAdmin))), count)
+	expectedPolicies := 0
+	for _, role := range builtInRoles {
+		if !role.Superuser {
+			expectedPolicies += len(PermissionsForRole(role.Key))
+		}
+	}
+	assert.Equal(t, int64(expectedPolicies), count)
 
 	var roles []model.AuthzRole
 	require.NoError(t, db.Order("sort asc").Find(&roles).Error)
-	require.Len(t, roles, 2)
+	require.Len(t, roles, len(builtInRoles))
 	assert.Equal(t, BuiltInRoleRoot, roles[0].Key)
 	assert.Equal(t, BuiltInRoleAdmin, roles[1].Key)
 
@@ -64,7 +70,7 @@ func TestInitOnSlaveOnlyLoadsPolicies(t *testing.T) {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&model.CasbinRule{}, &model.AuthzRole{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.CasbinRule{}, &model.AuthzRole{}))
 
 	require.NoError(t, Init(db))
 
@@ -97,15 +103,13 @@ func TestSetUserPermissionsStoresOnlyOverrides(t *testing.T) {
 
 	assert.True(t, Can(42, common.RoleAdminUser, ChannelSensitiveWrite))
 	assert.False(t, Can(42, common.RoleAdminUser, ChannelWrite))
-	assert.Equal(t, PermissionsMap{
-		ResourceChannel: {
-			ActionRead:           true,
-			ActionOperate:        true,
-			ActionWrite:          false,
-			ActionSensitiveWrite: true,
-			ActionSecretView:     false,
-		},
-	}, ExplicitUserPermissions(42))
+	assert.Equal(t, map[string]bool{
+		ActionRead:           true,
+		ActionOperate:        true,
+		ActionWrite:          false,
+		ActionSensitiveWrite: true,
+		ActionSecretView:     false,
+	}, ExplicitUserPermissions(42)[ResourceChannel])
 	assert.Equal(t, PermissionsMap{
 		ResourceChannel: {
 			ActionSensitiveWrite: true,
@@ -125,15 +129,13 @@ func TestSetUserPermissionsStoresOnlyOverrides(t *testing.T) {
 		ActionSecretView:     false,
 	}}))
 	assert.False(t, Can(42, common.RoleAdminUser, ChannelSensitiveWrite))
-	assert.Equal(t, PermissionsMap{
-		ResourceChannel: {
-			ActionRead:           true,
-			ActionOperate:        true,
-			ActionWrite:          true,
-			ActionSensitiveWrite: false,
-			ActionSecretView:     false,
-		},
-	}, ExplicitUserPermissions(42))
+	assert.Equal(t, map[string]bool{
+		ActionRead:           true,
+		ActionOperate:        true,
+		ActionWrite:          true,
+		ActionSensitiveWrite: false,
+		ActionSecretView:     false,
+	}, ExplicitUserPermissions(42)[ResourceChannel])
 	assert.Empty(t, ExplicitUserOverrides(42))
 }
 
@@ -226,4 +228,160 @@ func TestCapabilitiesUseCatalogShape(t *testing.T) {
 	assert.True(t, capabilities[ResourceChannel][ActionWrite])
 	assert.False(t, capabilities[ResourceChannel][ActionSensitiveWrite])
 	assert.False(t, capabilities[ResourceChannel][ActionSecretView])
+}
+
+func TestBusinessRoleAssignmentsUsePersistedCasbinGroups(t *testing.T) {
+	db := newAuthzTestDB(t)
+	require.NoError(t, Init(db))
+
+	financeEntry := model.User{
+		Username: "finance-entry",
+		Password: "password",
+		AffCode:  "finance-entry-aff",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, db.Create(&financeEntry).Error)
+
+	require.NoError(t, SetUserBusinessRoles(db, financeEntry.Id, []string{BusinessRoleFinanceEntry}))
+	assert.Equal(t, []string{BusinessRoleFinanceEntry}, mustUserBusinessRoles(t, db, financeEntry.Id))
+	enforced, err := currentEnforcer().Enforce(UserSubject(financeEntry.Id), ResourceBusinessManualCredit, ActionCreate)
+	require.NoError(t, err)
+	assert.True(t, enforced)
+	assert.True(t, Can(financeEntry.Id, common.RoleCommonUser, BusinessManualCreditCreate))
+	assert.True(t, Can(financeEntry.Id, common.RoleCommonUser, BusinessManualCreditRead))
+	assert.False(t, Can(financeEntry.Id, common.RoleCommonUser, BusinessManualCreditApprove))
+	assert.False(t, Can(financeEntry.Id, common.RoleCommonUser, ChannelRead))
+
+	var assignmentRule model.CasbinRule
+	require.NoError(t, db.Where("ptype = ? AND v0 = ? AND v1 = ?", "g", UserSubject(financeEntry.Id), RoleSubject(BusinessRoleFinanceEntry)).First(&assignmentRule).Error)
+}
+
+func TestBusinessRoleBaselinesAndRootAccess(t *testing.T) {
+	db := newAuthzTestDB(t)
+	require.NoError(t, Init(db))
+
+	tests := []struct {
+		name    string
+		roleKey string
+		allowed Permission
+		denied  []Permission
+	}{
+		{
+			name:    "platform manager",
+			roleKey: BusinessRolePlatformManager,
+			allowed: BusinessProjectUpdate,
+			denied:  []Permission{BusinessManualCreditApprove},
+		},
+		{
+			name:    "finance entry",
+			roleKey: BusinessRoleFinanceEntry,
+			allowed: BusinessManualCreditCreate,
+			denied:  []Permission{BusinessManualCreditApprove},
+		},
+		{
+			name:    "finance approver",
+			roleKey: BusinessRoleFinanceApprover,
+			allowed: BusinessManualCreditApprove,
+			denied:  []Permission{BusinessManualCreditCreate},
+		},
+		{
+			name:    "sales supervisor",
+			roleKey: BusinessRoleSalesSupervisor,
+			allowed: BusinessFollowUpCreate,
+			denied: []Permission{
+				BusinessCustomerAssignmentUpdate,
+				BusinessReportRead,
+				BusinessManualCreditCreate,
+				BusinessCompanyRead,
+				BusinessProjectRead,
+				BusinessLedgerRead,
+			},
+		},
+		{
+			name:    "operations reader",
+			roleKey: BusinessRoleOperationsReader,
+			allowed: BusinessOperationsRead,
+			denied: []Permission{
+				BusinessOperationsUpdate,
+				BusinessCompanyRead,
+				BusinessProjectRead,
+				BusinessLedgerRead,
+				BusinessManualCreditRead,
+				BusinessSalesRead,
+				BusinessFollowUpRead,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user := model.User{
+				Username: tt.roleKey,
+				Password: "password",
+				AffCode:  "aff-" + tt.roleKey,
+				Role:     common.RoleCommonUser,
+				Status:   common.UserStatusEnabled,
+			}
+			require.NoError(t, db.Create(&user).Error)
+			require.NoError(t, SetUserBusinessRoles(db, user.Id, []string{tt.roleKey}))
+			assert.True(t, Can(user.Id, common.RoleCommonUser, tt.allowed))
+			assert.True(t, HasBusinessRole(user.Id, common.RoleCommonUser, tt.roleKey))
+			for _, permission := range tt.denied {
+				assert.False(t, Can(user.Id, common.RoleCommonUser, permission))
+			}
+		})
+	}
+
+	assert.True(t, Can(1, common.RoleRootUser, BusinessManualCreditApprove))
+	assert.True(t, Can(1, common.RoleRootUser, BusinessOperationsUpdate))
+	assert.True(t, HasBusinessRole(1, common.RoleRootUser, BusinessRolePlatformManager))
+}
+
+func TestBusinessRoleAssignmentRejectsNonOrdinaryUsersAndUnknownRoles(t *testing.T) {
+	db := newAuthzTestDB(t)
+	require.NoError(t, Init(db))
+
+	admin := model.User{
+		Username: "system-admin",
+		Password: "password",
+		AffCode:  "system-admin-aff",
+		Role:     common.RoleAdminUser,
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, db.Create(&admin).Error)
+
+	require.Error(t, SetUserBusinessRoles(db, admin.Id, []string{BusinessRoleFinanceEntry}))
+	require.Error(t, SetUserBusinessRoles(db, admin.Id, []string{"unknown"}))
+	assert.Empty(t, mustUserBusinessRoles(t, db, admin.Id))
+}
+
+func TestSetUserBusinessRolesInTxRollsBack(t *testing.T) {
+	db := newAuthzTestDB(t)
+	require.NoError(t, Init(db))
+
+	user := model.User{
+		Username: "finance-entry-rollback",
+		Password: "password",
+		AffCode:  "finance-entry-rollback-aff",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	tx := db.Begin()
+	require.NoError(t, tx.Error)
+	require.NoError(t, SetUserBusinessRolesInTx(tx, user.Id, []string{BusinessRoleFinanceEntry}))
+	require.NoError(t, tx.Rollback().Error)
+	require.NoError(t, ReloadPolicy())
+
+	assert.Empty(t, mustUserBusinessRoles(t, db, user.Id))
+	assert.False(t, Can(user.Id, common.RoleCommonUser, BusinessManualCreditCreate))
+}
+
+func mustUserBusinessRoles(t *testing.T, db *gorm.DB, userID int) []string {
+	t.Helper()
+	roles, err := UserBusinessRoles(db, userID)
+	require.NoError(t, err)
+	return roles
 }

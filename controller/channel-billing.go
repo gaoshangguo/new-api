@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -149,10 +150,11 @@ func GetClaudeAuthHeader(token string) http.Header {
 	return h
 }
 
-func GetResponseBody(method, url string, channel *model.Channel, headers http.Header) ([]byte, error) {
-	req, err := http.NewRequest(method, url, nil)
+func GetResponseBody(method, requestURL string, channel *model.Channel, headers http.Header) ([]byte, error) {
+	req, err := http.NewRequest(method, requestURL, nil)
 	if err != nil {
-		return nil, err
+		// NewRequest 的 parse 错误文本内嵌完整 URL（可能携带密钥查询参数），剥离后返回。
+		return nil, errors.New("invalid request url")
 	}
 	for k := range headers {
 		req.Header.Add(k, headers.Get(k))
@@ -163,6 +165,13 @@ func GetResponseBody(method, url string, channel *model.Channel, headers http.He
 	}
 	res, err := client.Do(req)
 	if err != nil {
+		// net/http 把传输层错误包装为 *url.Error，其 Error() 文本内嵌完整请求 URL
+		// （如 ?api_key=...）；剥离 URL 仅保留底层原因（dial/timeout 等），确保
+		// 错误文本不含 URL/密钥，杜绝日志落点或 API 响应泄露密钥。
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) && urlErr.Unwrap() != nil {
+			return nil, fmt.Errorf("request failed: %w", urlErr.Unwrap())
+		}
 		return nil, err
 	}
 	if res.StatusCode != http.StatusOK {
@@ -196,6 +205,8 @@ func updateChannelCloseAIBalance(channel *model.Channel) (float64, error) {
 }
 
 func updateChannelOpenAISBBalance(channel *model.Channel) (float64, error) {
+	// 注意：密钥作为该外部服务的查询参数传递；此请求路径不记录日志，
+	// 若未来新增请求日志必须对该参数脱敏（绝不落库/落日志）。
 	url := fmt.Sprintf("https://api.openai-sb.com/sb-api/user/status?api_key=%s", channel.Key)
 	body, err := GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))
 	if err != nil {

@@ -110,6 +110,12 @@ type TaskPrivateData struct {
 	TokenId        int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
 	NodeName       string              `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
 	BillingContext *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+	// CallbackUrl / CallbackSecret 为客户提供的任务完成回调（P0-09）。
+	// 任务到达终态时，网关经 SSRF 防护以 HMAC-SHA256 签名投递
+	// TaskCallbackPayload 到 CallbackUrl（签名密钥优先用 CallbackSecret，
+	// 未提供时回退到平台级 TASK_CALLBACK_SIGNING_SECRET）。
+	CallbackUrl    string `json:"callback_url,omitempty"`
+	CallbackSecret string `json:"callback_secret,omitempty"`
 }
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
@@ -120,6 +126,7 @@ type TaskBillingContext struct {
 	OtherRatios     map[string]float64 `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
 	OriginModelName string             `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
 	PerCallBilling  bool               `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
+	PriceVersionId  int                `json:"price_version_id,omitempty"`  // 提交时刻生效的价格版本（P0-28）
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）

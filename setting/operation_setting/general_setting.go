@@ -20,6 +20,10 @@ type GeneralSetting struct {
 	CustomCurrencySymbol string `json:"custom_currency_symbol"`
 	// 自定义货币与美元汇率（1 USD = X Custom）
 	CustomCurrencyExchangeRate float64 `json:"custom_currency_exchange_rate"`
+	// 平台商务联系方式（P0-01）：展示在首页/页脚/状态接口。
+	BusinessContactEmail  string `json:"business_contact_email"`
+	BusinessContactPhone  string `json:"business_contact_phone"`
+	BusinessContactWechat string `json:"business_contact_wechat"`
 }
 
 // 默认配置

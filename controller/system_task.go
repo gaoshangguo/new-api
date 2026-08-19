@@ -34,6 +34,22 @@ func CreateLogCleanupSystemTask(c *gin.Context) {
 	})
 }
 
+func CreateChannelKeyReEncryptSystemTask(c *gin.Context) {
+	task, created, err := service.EnqueueChannelKeyReEncrypt()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": map[string]any{
+			"task":    task.ToResponse(),
+			"created": created,
+		},
+	})
+}
+
 func GetCurrentSystemTask(c *gin.Context) {
 	taskType := c.Query("type")
 	if taskType == "" {

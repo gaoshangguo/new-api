@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -79,6 +80,15 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other["cache_ratio"] = cacheRatio
 	other["model_price"] = modelPrice
 	other["user_group_ratio"] = userGroupRatio
+	if relayInfo != nil && relayInfo.PriceData.PriceVersionId > 0 {
+		other["price_version_id"] = relayInfo.PriceData.PriceVersionId
+	}
+	if relayInfo != nil && relayInfo.AliasName != "" {
+		other["alias_name"] = relayInfo.AliasName
+		if relayInfo.AliasVersion > 0 {
+			other["alias_version"] = relayInfo.AliasVersion
+		}
+	}
 	other["frt"] = float64(relayInfo.FirstResponseTime.UnixMilli() - relayInfo.StartTime.UnixMilli())
 	if relayInfo.ReasoningEffort != "" {
 		other["reasoning_effort"] = relayInfo.ReasoningEffort
@@ -104,6 +114,12 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	isLocalCountTokens := common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens)
 	if isLocalCountTokens {
 		adminInfo["local_count_tokens"] = isLocalCountTokens
+	}
+
+	// P0-15 结构化路由轨迹：用户可见摘要 + 管理员可见明细。
+	if trace := model.GetRoutingTrace(ctx); trace != nil {
+		other["routing_trace"] = trace.RoutingSummary()
+		adminInfo["routing"] = trace
 	}
 
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
@@ -296,6 +312,9 @@ func GenerateMjOtherInfo(relayInfo *relaycommon.RelayInfo, priceData hosttypes.P
 	other["group_ratio"] = priceData.GroupRatioInfo.GroupRatio
 	if priceData.GroupRatioInfo.HasSpecialRatio {
 		other["user_group_ratio"] = priceData.GroupRatioInfo.GroupSpecialRatio
+	}
+	if priceData.PriceVersionId > 0 {
+		other["price_version_id"] = priceData.PriceVersionId
 	}
 	appendRequestPath(nil, relayInfo, other)
 	return other

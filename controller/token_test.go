@@ -16,6 +16,8 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -543,6 +545,88 @@ func TestUpdateTokenMasksKeyInResponse(t *testing.T) {
 	if strings.Contains(recorder.Body.String(), token.Key) {
 		t.Fatalf("update response leaked raw token key: %s", recorder.Body.String())
 	}
+}
+
+// TestAddTokenPersistsB2BudgetAndRateLimitFields verifies the token create
+// endpoint persists the B2 budget/rate-limit fields (daily/monthly quota,
+// channel allowlist, concurrency gate, RPM/TPM) instead of silently dropping
+// them on the clean-token assignment path.
+func TestAddTokenPersistsB2BudgetAndRateLimitFields(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	channelLimits := `{"channels":[1,2,3]}`
+
+	body := map[string]any{
+		"name":                    "b2-token",
+		"expired_time":            -1,
+		"remain_quota":            100,
+		"unlimited_quota":         false,
+		"group":                   "default",
+		"daily_quota":             50000,
+		"monthly_quota":           1000000,
+		"channel_limits":          channelLimits,
+		"max_concurrent_requests": 3,
+		"rate_limit_rpm":          60,
+		"rate_limit_tpm":          100000,
+	}
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/", body, 1)
+	AddToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	require.True(t, response.Success, "add token failed: %s", response.Message)
+
+	var saved model.Token
+	require.NoError(t, db.Where("name = ?", "b2-token").First(&saved).Error)
+	assert.Equal(t, int64(50000), saved.DailyQuota)
+	assert.Equal(t, int64(1000000), saved.MonthlyQuota)
+	require.NotNil(t, saved.ChannelLimits)
+	assert.Equal(t, channelLimits, *saved.ChannelLimits)
+	assert.Equal(t, 3, saved.MaxConcurrentRequests)
+	assert.Equal(t, 60, saved.RateLimitRPM)
+	assert.Equal(t, int64(100000), saved.RateLimitTPM)
+}
+
+// TestUpdateTokenPersistsB2BudgetAndRateLimitFields verifies the token update
+// endpoint persists the B2 budget/rate-limit fields through model.Token.Update
+// (whose column allowlist must include them).
+func TestUpdateTokenPersistsB2BudgetAndRateLimitFields(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	token := seedToken(t, db, 1, "editable-b2-token", "yzab1234b2cdef5678")
+	channelLimits := `{"channels":[4,5]}`
+
+	body := map[string]any{
+		"id":                       token.Id,
+		"name":                     "editable-b2-token",
+		"expired_time":             -1,
+		"remain_quota":             100,
+		"unlimited_quota":          false,
+		"model_limits_enabled":     false,
+		"model_limits":             "",
+		"group":                    "default",
+		"cross_group_retry":        false,
+		"daily_quota":              25000,
+		"monthly_quota":            500000,
+		"channel_limits":           channelLimits,
+		"max_concurrent_requests":  5,
+		"rate_limit_rpm":           30,
+		"rate_limit_tpm":           50000,
+	}
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
+	UpdateToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	require.True(t, response.Success, "update token failed: %s", response.Message)
+
+	var saved model.Token
+	require.NoError(t, db.First(&saved, token.Id).Error)
+	assert.Equal(t, int64(25000), saved.DailyQuota)
+	assert.Equal(t, int64(500000), saved.MonthlyQuota)
+	require.NotNil(t, saved.ChannelLimits)
+	assert.Equal(t, channelLimits, *saved.ChannelLimits)
+	assert.Equal(t, 5, saved.MaxConcurrentRequests)
+	assert.Equal(t, 30, saved.RateLimitRPM)
+	assert.Equal(t, int64(50000), saved.RateLimitTPM)
 }
 
 func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {

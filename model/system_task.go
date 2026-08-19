@@ -16,11 +16,18 @@ const (
 	SystemTaskStatusSucceeded SystemTaskStatus = "succeeded"
 	SystemTaskStatusFailed    SystemTaskStatus = "failed"
 
-	SystemTaskTypeLogCleanup     = "log_cleanup"
-	SystemTaskTypeChannelTest    = "channel_test"
-	SystemTaskTypeModelUpdate    = "model_update"
-	SystemTaskTypeMidjourneyPoll = "midjourney_poll"
-	SystemTaskTypeAsyncTaskPoll  = "async_task_poll"
+	SystemTaskTypeLogCleanup           = "log_cleanup"
+	SystemTaskTypeChannelTest          = "channel_test"
+	SystemTaskTypeModelUpdate          = "model_update"
+	SystemTaskTypeMidjourneyPoll       = "midjourney_poll"
+	SystemTaskTypeAsyncTaskPoll        = "async_task_poll"
+	SystemTaskTypeBusinessReminderScan = "business_reminder_scan"
+	SystemTaskTypePriceVersionApply    = "price_version_apply"
+	SystemTaskTypeLogRetention         = "log_retention"
+	SystemTaskTypePlatformAlertEval    = "platform_alert_eval"
+
+	SystemTaskTypeChannelKeyExpiry    = "channel_key_expiry"
+	SystemTaskTypeChannelKeyReEncrypt = "channel_key_re_encrypt"
 )
 
 var ErrSystemTaskLockLost = errors.New("system task lock lost")

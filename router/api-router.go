@@ -31,6 +31,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/about", controller.GetAbout)
 		//apiRouter.GET("/midjourney", controller.GetMidjourney)
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
+		registerBusinessRoutes(apiRouter)
+		registerBusinessReminderRoutes(apiRouter)
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
 		perfMetricsRoute := apiRouter.Group("/perf-metrics")
 		perfMetricsRoute.Use(middleware.HeaderNavModulePublicOrUserAuth("pricing"))
@@ -183,8 +185,11 @@ func SetApiRouter(router *gin.Engine) {
 			subscriptionAdminRoute.DELETE("/user_subscriptions/:id", controller.AdminDeleteUserSubscription)
 		}
 
-		// Subscription payment callbacks (no auth)
-		apiRouter.POST("/subscription/epay/notify", anonymousRequestBodyLimit, controller.SubscriptionEpayNotify)
+	// P0-29 平台监控：Prometheus 文本格式指标（无敏感数据）。
+	apiRouter.GET("/metrics", controller.GetPrometheusMetrics)
+
+	// Subscription payment callbacks (no auth)
+	apiRouter.POST("/subscription/epay/notify", anonymousRequestBodyLimit, controller.SubscriptionEpayNotify)
 		apiRouter.GET("/subscription/epay/notify", controller.SubscriptionEpayNotify)
 		apiRouter.GET("/subscription/epay/return", controller.SubscriptionEpayReturn)
 		apiRouter.POST("/subscription/epay/return", anonymousRequestBodyLimit, controller.SubscriptionEpayReturn)
@@ -202,6 +207,49 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.POST("/waffo-pancake/save", controller.SaveWaffoPancake)
 			optionRoute.POST("/waffo-pancake/subscription-product", controller.CreateWaffoPancakeSubscriptionProduct)
 			optionRoute.GET("/waffo-pancake/subscription-product-options", controller.ListWaffoPancakeSubscriptionProductOptions)
+		}
+
+		// Price version management (P0-28): frozen snapshots of all price maps.
+		priceVersionRoute := apiRouter.Group("/price_version")
+		priceVersionRoute.Use(middleware.RootAuth())
+		{
+			priceVersionRoute.GET("/", controller.GetPriceVersions)
+			priceVersionRoute.GET("/:id", controller.GetPriceVersion)
+			priceVersionRoute.POST("/", controller.CreatePriceVersion)
+			priceVersionRoute.POST("/:id/apply", controller.ApplyPriceVersionNow)
+		}
+
+		// Adapter capability declaration (P0-13): queryable per channel type.
+		capabilitiesRoute := apiRouter.Group("/adaptor_capabilities")
+		capabilitiesRoute.Use(middleware.RootAuth())
+		{
+			capabilitiesRoute.GET("/", controller.GetAdaptorCapabilities)
+		}
+
+		// Model alias management (P0-10): external name -> internal model.
+		modelAliasRoute := apiRouter.Group("/model_alias")
+		{
+			modelAliasRoute.GET("/public", controller.GetPublicModelAliases)
+		}
+		modelAliasAdminRoute := apiRouter.Group("/model_alias")
+		modelAliasAdminRoute.Use(middleware.RootAuth())
+		{
+			modelAliasAdminRoute.GET("/", controller.GetModelAliases)
+			modelAliasAdminRoute.POST("/", controller.CreateModelAlias)
+			modelAliasAdminRoute.PUT("/:id", controller.UpdateModelAlias)
+			modelAliasAdminRoute.DELETE("/:id", controller.DeleteModelAlias)
+		}
+
+		// Platform alert rules (P0-29): platform-level threshold alerting.
+		platformAlertRoute := apiRouter.Group("/platform_alert")
+		platformAlertRoute.Use(middleware.RootAuth())
+		{
+			platformAlertRoute.GET("/rules", controller.ListPlatformAlertRules)
+			platformAlertRoute.POST("/rules", controller.CreatePlatformAlertRule)
+			platformAlertRoute.PUT("/rules/:id", controller.UpdatePlatformAlertRule)
+			platformAlertRoute.DELETE("/rules/:id", controller.DeletePlatformAlertRule)
+			platformAlertRoute.GET("/events", controller.ListPlatformAlertEvents)
+			platformAlertRoute.POST("/eval", controller.TriggerPlatformAlertEvaluation)
 		}
 
 		// Custom OAuth provider management (root only)
@@ -282,6 +330,7 @@ func SetApiRouter(router *gin.Engine) {
 		systemTaskRoute.Use(middleware.RootAuth())
 		{
 			systemTaskRoute.POST("/log-cleanup", controller.CreateLogCleanupSystemTask)
+			systemTaskRoute.POST("/channel-key-re-encrypt", controller.CreateChannelKeyReEncryptSystemTask)
 			systemTaskRoute.GET("/list", controller.ListSystemTasks)
 			systemTaskRoute.GET("/current", controller.GetCurrentSystemTask)
 			systemTaskRoute.GET("/:task_id", controller.GetSystemTask)

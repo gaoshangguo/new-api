@@ -184,12 +184,12 @@ export function Features(_props: FeaturesProps) {
       <div className='mx-auto max-w-6xl'>
         <AnimateInView className='mb-16 max-w-lg'>
           <p className='text-muted-foreground mb-3 text-xs font-medium tracking-widest uppercase'>
-            {t('Core Features')}
+            {t('Core capabilities for every AI scenario')}
           </p>
           <h2 className='text-2xl leading-tight font-bold tracking-tight md:text-3xl'>
-            {t('Built for developers,')}
+            {t('From model integration to cost control,')}
             <br />
-            {t('designed for scale')}
+            {t('everything is under control')}
           </h2>
         </AnimateInView>
 

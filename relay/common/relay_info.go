@@ -98,6 +98,10 @@ type RelayInfo struct {
 	UsePrice               bool
 	RelayMode              int
 	OriginModelName        string
+	// AliasName / AliasVersion 记录客户端调用时使用的模型别名（P0-10）。
+	// 非别名请求为空/0；历史日志据此解释请求实际命中的内部模型。
+	AliasName    string
+	AliasVersion int
 	RequestURLPath         string
 	RequestHeaders         map[string]string
 	ShouldIncludeUsage     bool
@@ -513,6 +517,9 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		UserEmail:  common.GetContextKeyString(c, constant.ContextKeyUserEmail),
 
 		OriginModelName: common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
+		// P0-10 模型别名：记录客户端实际调用的别名与解析时的版本，供日志解释。
+		AliasName:    common.GetContextKeyString(c, constant.ContextKeyModelAlias),
+		AliasVersion: common.GetContextKeyInt(c, constant.ContextKeyModelAliasVersion),
 
 		TokenId:        common.GetContextKeyInt(c, constant.ContextKeyTokenId),
 		TokenKey:       common.GetContextKeyString(c, constant.ContextKeyTokenKey),
