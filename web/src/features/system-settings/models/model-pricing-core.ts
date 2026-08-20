@@ -33,13 +33,18 @@ export const createModelPricingSchema = (t: (key: string) => string) =>
     imageRatio: z.string().optional(),
     audioRatio: z.string().optional(),
     audioCompletionRatio: z.string().optional(),
+    durationPrice: z.string().optional(),
   })
 
 export type ModelPricingFormValues = z.infer<
   ReturnType<typeof createModelPricingSchema>
 >
 
-export type PricingMode = 'per-token' | 'per-request' | 'tiered_expr'
+export type PricingMode =
+  | 'per-token'
+  | 'per-request'
+  | 'tiered_expr'
+  | 'per-duration'
 
 export type LaneKey =
   | 'completion'
@@ -59,6 +64,7 @@ export type ModelRatioData = {
   imageRatio?: string
   audioRatio?: string
   audioCompletionRatio?: string
+  durationPrice?: string
   billingMode?: PricingMode
   billingExpr?: string
   requestRuleExpr?: string
@@ -236,6 +242,18 @@ export function buildPreviewRows(
         key: 'price',
         label: 'ModelPrice',
         value: values.price || t('Empty'),
+      },
+    ]
+  }
+
+  if (mode === 'per-duration') {
+    return [
+      {
+        key: 'durationPrice',
+        label: t('Duration price'),
+        value: values.durationPrice
+          ? `$${values.durationPrice}`
+          : t('Empty'),
       },
     ]
   }

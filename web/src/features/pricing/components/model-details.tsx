@@ -68,6 +68,7 @@ import {
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
 import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
+import { formatCurrencyFromUSD } from '@/lib/currency'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import type {
   ModelCapability,
@@ -698,6 +699,33 @@ function PriceSection(props: {
             </div>
           </div>
         )}
+      </section>
+    )
+  }
+
+  if (
+    props.model.billing_mode === 'per_duration' &&
+    props.model.billing_duration_price != null
+  ) {
+    const priceInUSD = props.showRechargePrice
+      ? (props.model.billing_duration_price * props.priceRate) /
+        props.usdExchangeRate
+      : props.model.billing_duration_price
+    return (
+      <section>
+        <SectionTitle>{t('Base Price')}</SectionTitle>
+        <div className='flex items-baseline justify-between'>
+          <span className='text-muted-foreground text-sm'>
+            {t('Per second')}
+          </span>
+          <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
+            {formatCurrencyFromUSD(priceInUSD, {
+              digitsLarge: 4,
+              digitsSmall: 4,
+              abbreviate: false,
+            })}
+          </span>
+        </div>
       </section>
     )
   }

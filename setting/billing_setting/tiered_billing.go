@@ -9,22 +9,26 @@ import (
 )
 
 const (
-	BillingModeRatio      = "ratio"
-	BillingModeTieredExpr = "tiered_expr"
-	BillingModeField      = "billing_mode"
-	BillingExprField      = "billing_expr"
+	BillingModeRatio          = "ratio"
+	BillingModeTieredExpr     = "tiered_expr"
+	BillingModePerDuration    = "per_duration"
+	BillingModeField          = "billing_mode"
+	BillingExprField          = "billing_expr"
+	BillingDurationPriceField = "billing_duration_price"
 )
 
 // BillingSetting is managed by config.GlobalConfig.Register.
-// DB keys: billing_setting.billing_mode, billing_setting.billing_expr
+// DB keys: billing_setting.billing_mode, billing_setting.billing_expr, billing_setting.billing_duration_price
 type BillingSetting struct {
-	BillingMode map[string]string `json:"billing_mode"`
-	BillingExpr map[string]string `json:"billing_expr"`
+	BillingMode          map[string]string  `json:"billing_mode"`
+	BillingExpr          map[string]string  `json:"billing_expr"`
+	BillingDurationPrice map[string]float64 `json:"billing_duration_price"`
 }
 
 var billingSetting = BillingSetting{
-	BillingMode: make(map[string]string),
-	BillingExpr: make(map[string]string),
+	BillingMode:          make(map[string]string),
+	BillingExpr:          make(map[string]string),
+	BillingDurationPrice: make(map[string]float64),
 }
 
 func init() {
@@ -55,13 +59,27 @@ func GetBillingExprCopy() map[string]string {
 	return lo.Assign(billingSetting.BillingExpr)
 }
 
+// GetBillingDurationPrice 返回模型在按时长计费模式下的每秒单价（美元/秒）。
+// 第二个返回值表示该模型是否配置了时长单价。
+func GetBillingDurationPrice(model string) (float64, bool) {
+	price, ok := billingSetting.BillingDurationPrice[model]
+	return price, ok
+}
+
+func GetBillingDurationPriceCopy() map[string]float64 {
+	return lo.Assign(billingSetting.BillingDurationPrice)
+}
+
 func GetPricingSyncData(base map[string]any) map[string]any {
-	extra := make(map[string]any, 2)
+	extra := make(map[string]any, 3)
 	if modes := GetBillingModeCopy(); len(modes) > 0 {
 		extra[BillingModeField] = modes
 	}
 	if exprs := GetBillingExprCopy(); len(exprs) > 0 {
 		extra[BillingExprField] = exprs
+	}
+	if prices := GetBillingDurationPriceCopy(); len(prices) > 0 {
+		extra[BillingDurationPriceField] = prices
 	}
 	return lo.Assign(base, extra)
 }

@@ -72,6 +72,7 @@ var pricingSyncFields = []string{
 	"model_price",
 	billing_setting.BillingModeField,
 	billing_setting.BillingExprField,
+	billing_setting.BillingDurationPriceField,
 }
 
 var numericPricingSyncFields = map[string]bool{
@@ -83,6 +84,7 @@ var numericPricingSyncFields = map[string]bool{
 	"audio_ratio":            true,
 	"audio_completion_ratio": true,
 	"model_price":            true,
+	billing_setting.BillingDurationPriceField: true,
 }
 
 type upstreamResult struct {

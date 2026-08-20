@@ -135,19 +135,41 @@ func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, req *http.Request, _ *r
 	return nil
 }
 
-// EstimateBilling 根据请求 metadata 中的输出分辨率与是否包含视频输入，返回相对基准价的计费 OtherRatio。
+// EstimateBilling 根据请求 metadata 中的输出分辨率、是否包含视频输入与时长，
+// 返回相对基准价的计费 OtherRatio。其中 "seconds" 供按时长计费模式使用，
+// "video_input" 为分辨率/输入类型相对基准价的倍率（两种模式通用）。
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
 		return nil
 	}
+	ratios := make(map[string]float64)
 	hasVideo := hasVideoInMetadata(req.Metadata)
 	resolution, _ := req.Metadata["resolution"].(string)
 	ratio, ok := GetVideoInputRatio(info.OriginModelName, resolution, hasVideo)
-	if !ok || ratio == 1.0 {
+	if ok && ratio != 1.0 {
+		ratios["video_input"] = ratio
+	}
+	// 时长作为计费乘数，必须是用户输入并经上限钳制，防止溢出成负扣费。
+	if seconds := resolveDurationSeconds(req.Duration, req.Seconds); seconds > 0 {
+		ratios["seconds"] = float64(seconds)
+	}
+	if len(ratios) == 0 {
 		return nil
 	}
-	return map[string]float64{"video_input": ratio}
+	return ratios
+}
+
+// resolveDurationSeconds 解析请求时长并钳制到 MaxTaskDurationSeconds 上限。
+// 时长字段可能来自 metadata 旁路，因此校验后仍在此处防御性钳制。
+func resolveDurationSeconds(duration int, seconds string) int {
+	if duration <= 0 && seconds != "" {
+		duration, _ = strconv.Atoi(seconds)
+	}
+	if duration <= 0 {
+		return 0
+	}
+	return min(duration, relaycommon.MaxTaskDurationSeconds)
 }
 
 // hasVideoInMetadata 直接检查 metadata 的 content 数组是否包含 video_url 条目，

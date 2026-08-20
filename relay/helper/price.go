@@ -192,7 +192,16 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 	usePrice := success
 	var modelRatio float64
 
-	if !success {
+	// 按时长计费：以管理员配置的每秒单价作为基础价格，实际时长与分辨率
+	// 倍率由适配器 EstimateBilling 以 OtherRatios 形式在调用方乘入。
+	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModePerDuration {
+		durationPrice, ok := billing_setting.GetBillingDurationPrice(info.OriginModelName)
+		if !ok || durationPrice <= 0 {
+			return hosttypes.PriceData{}, modelPriceNotConfiguredError(info.OriginModelName, info.UserId)
+		}
+		modelPrice = durationPrice
+		usePrice = true
+	} else if !success {
 		defaultPrice, ok := ratio_setting.GetDefaultModelPriceMap()[info.OriginModelName]
 		if ok {
 			modelPrice = defaultPrice
@@ -261,11 +270,16 @@ func HasModelBillingConfig(modelName string) bool {
 	if _, ok, _ := ratio_setting.GetModelRatio(modelName); ok {
 		return true
 	}
-	if billing_setting.GetBillingMode(modelName) != billing_setting.BillingModeTieredExpr {
+	switch billing_setting.GetBillingMode(modelName) {
+	case billing_setting.BillingModeTieredExpr:
+		expr, ok := billing_setting.GetBillingExpr(modelName)
+		return ok && strings.TrimSpace(expr) != ""
+	case billing_setting.BillingModePerDuration:
+		price, ok := billing_setting.GetBillingDurationPrice(modelName)
+		return ok && price > 0
+	default:
 		return false
 	}
-	expr, ok := billing_setting.GetBillingExpr(modelName)
-	return ok && strings.TrimSpace(expr) != ""
 }
 
 func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo hosttypes.GroupRatioInfo) (hosttypes.PriceData, error) {

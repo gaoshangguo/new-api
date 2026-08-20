@@ -170,6 +170,7 @@ export const ModelPricingEditorPanel = forwardRef<
       imageRatio: '',
       audioRatio: '',
       audioCompletionRatio: '',
+      durationPrice: '',
     },
   })
 
@@ -187,14 +188,19 @@ export const ModelPricingEditorPanel = forwardRef<
         imageRatio: editData.imageRatio || '',
         audioRatio: editData.audioRatio || '',
         audioCompletionRatio: editData.audioCompletionRatio || '',
+        durationPrice: editData.durationPrice || '',
       })
-      setPricingMode(
-        editData.billingMode === 'tiered_expr'
-          ? 'tiered_expr'
-          : editData.price
-            ? 'per-request'
-            : 'per-token'
-      )
+      let nextMode: PricingMode
+      if (editData.billingMode === 'tiered_expr') {
+        nextMode = 'tiered_expr'
+      } else if (editData.billingMode === 'per-duration') {
+        nextMode = 'per-duration'
+      } else if (editData.price) {
+        nextMode = 'per-request'
+      } else {
+        nextMode = 'per-token'
+      }
+      setPricingMode(nextMode)
       setBillingExpr(editData.billingExpr || '')
       setRequestRuleExpr(editData.requestRuleExpr || '')
     } else {
@@ -208,6 +214,7 @@ export const ModelPricingEditorPanel = forwardRef<
         imageRatio: '',
         audioRatio: '',
         audioCompletionRatio: '',
+        durationPrice: '',
       })
       setPricingMode('per-token')
       setBillingExpr('')
@@ -388,6 +395,13 @@ export const ModelPricingEditorPanel = forwardRef<
     }
 
     if (
+      pricingMode === 'per-duration' &&
+      toNumberOrNull(form.getValues('durationPrice')) === null
+    ) {
+      nextWarnings.push(t('Duration price must be a positive number.'))
+    }
+
+    if (
       pricingMode === 'per-token' &&
       toNumberOrNull(promptPrice) === null &&
       laneConfigs.some(
@@ -408,9 +422,19 @@ export const ModelPricingEditorPanel = forwardRef<
     }
 
     return nextWarnings
-  }, [editData, laneEnabled, lanePrices, pricingMode, promptPrice, t])
+  }, [editData, form, laneEnabled, lanePrices, pricingMode, promptPrice, t])
 
   const validatePricingValues = useCallback(() => {
+    if (pricingMode === 'per-duration') {
+      const durationPrice = toNumberOrNull(form.getValues('durationPrice'))
+      if (durationPrice === null || durationPrice <= 0) {
+        form.setError('durationPrice', {
+          message: t('Duration price must be a positive number.'),
+        })
+        return false
+      }
+    }
+
     if (
       pricingMode === 'per-token' &&
       toNumberOrNull(promptPrice) === null &&
@@ -451,6 +475,7 @@ export const ModelPricingEditorPanel = forwardRef<
         imageRatio: values.imageRatio || '',
         audioRatio: values.audioRatio || '',
         audioCompletionRatio: values.audioCompletionRatio || '',
+        durationPrice: values.durationPrice || '',
       }
 
       if (pricingMode === 'tiered_expr') {
@@ -544,7 +569,7 @@ export const ModelPricingEditorPanel = forwardRef<
                   onValueChange={handleModeChange}
                   className='gap-4'
                 >
-                  <TabsList className='grid w-full grid-cols-3'>
+                  <TabsList className='grid w-full grid-cols-4'>
                     <TabsTrigger value='per-token'>
                       {t('Per-token')}
                     </TabsTrigger>
@@ -553,6 +578,9 @@ export const ModelPricingEditorPanel = forwardRef<
                     </TabsTrigger>
                     <TabsTrigger value='tiered_expr'>
                       {t('Expression')}
+                    </TabsTrigger>
+                    <TabsTrigger value='per-duration'>
+                      {t('Per-duration')}
                     </TabsTrigger>
                   </TabsList>
 
@@ -648,6 +676,47 @@ export const ModelPricingEditorPanel = forwardRef<
                         requestRuleExpr={requestRuleExpr}
                         onBillingExprChange={setBillingExpr}
                         onRequestRuleExprChange={setRequestRuleExpr}
+                      />
+                    </FieldGroup>
+                  </TabsContent>
+
+                  <TabsContent value='per-duration' className='pt-0'>
+                    <FieldGroup className='gap-5'>
+                      <FormField
+                        control={form.control}
+                        name='durationPrice'
+                        render={({ field }) => (
+                          <FormItem className='contents'>
+                            <Field>
+                              <FieldLabel>{t('Duration price')}</FieldLabel>
+                              <FormControl>
+                                <InputGroup>
+                                  <InputGroupAddon>$</InputGroupAddon>
+                                  <InputGroupInput
+                                    inputMode='decimal'
+                                    placeholder='0.02'
+                                    {...field}
+                                    onChange={(event) => {
+                                      const value = event.target.value
+                                      if (numericDraftRegex.test(value)) {
+                                        field.onChange(value)
+                                      }
+                                    }}
+                                  />
+                                  <InputGroupAddon align='inline-end'>
+                                    {t('per second')}
+                                  </InputGroupAddon>
+                                </InputGroup>
+                              </FormControl>
+                              <FieldDescription>
+                                {t(
+                                  'Cost in USD per second of generated media, charged by the actual task duration.'
+                                )}
+                              </FieldDescription>
+                              <FormMessage />
+                            </Field>
+                          </FormItem>
+                        )}
                       />
                     </FieldGroup>
                   </TabsContent>
