@@ -51,7 +51,10 @@ import { combineBillingExpr } from '@/features/pricing/lib/billing-expr'
 import { useMediaQuery } from '@/hooks'
 
 import { safeJsonParse } from '../utils/json-parser'
-import type { PricingMode } from './model-pricing-core'
+import {
+  DURATION_RESOLUTION_KEYS,
+  type PricingMode,
+} from './model-pricing-core'
 import {
   ModelPricingEditorPanel,
   type ModelPricingEditorPanelHandle,
@@ -319,7 +322,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         imageRatio: editableModel.imageRatio,
         audioRatio: editableModel.audioRatio,
         audioCompletionRatio: editableModel.audioCompletionRatio,
-        durationPrice: editableModel.durationPrice,
+        durationPrices: editableModel.durationPrices,
         billingMode: editBillingMode,
         billingExpr: editableModel.billingExpr,
         requestRuleExpr: editableModel.requestRuleExpr,
@@ -394,7 +397,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         { fallback: {}, silent: true }
       )
       const billingDurationPriceMap = safeJsonParse<
-        Record<string, number>
+        Record<string, Record<string, number>>
       >(billingDurationPrice, { fallback: {}, silent: true })
 
       delete priceMap[name]
@@ -543,7 +546,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         { fallback: {}, silent: true }
       )
       const billingDurationPriceMap = safeJsonParse<
-        Record<string, number>
+        Record<string, Record<string, number>>
       >(billingDurationPrice, { fallback: {}, silent: true })
 
       const setIfPresent = (
@@ -591,9 +594,20 @@ const ModelRatioVisualEditorComponent = forwardRef<
           setIfPresent(audioMap, name, data.audioRatio)
           setIfPresent(audioCompletionMap, name, data.audioCompletionRatio)
         } else if (data.billingMode === 'per-duration') {
-          if (data.durationPrice) {
+          const prices = data.durationPrices
+          if (prices && Object.keys(prices).length > 0) {
             billingModeMap[name] = 'per_duration'
-            billingDurationPriceMap[name] = parseFloat(data.durationPrice)
+            billingDurationPriceMap[name] = DURATION_RESOLUTION_KEYS.reduce(
+              (acc, key) => {
+                const value = prices[key]
+                if (value && value !== '') {
+                  const parsed = parseFloat(value)
+                  if (Number.isFinite(parsed)) acc[key] = parsed
+                }
+                return acc
+              },
+              {} as Record<string, number>
+            )
           }
           // Clear any conflicting ratio/price keys so the model is not double
           // billed as per-request or per-token.

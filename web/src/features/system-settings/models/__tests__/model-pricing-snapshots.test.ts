@@ -48,19 +48,26 @@ function snapshotInput(overrides: Partial<ModelPricingSnapshotInput> = {}) {
   }
 }
 
+const perDurationInput = (prices: Record<string, number>) =>
+  snapshotInput({
+    billingMode: JSON.stringify({ 'seedance-video': 'per_duration' }),
+    billingDurationPrice: JSON.stringify({ 'seedance-video': prices }),
+  })
+
 describe('model pricing snapshots - per-duration billing', () => {
-  test('buildModelSnapshots infers per-duration mode and duration price', () => {
+  test('buildModelSnapshots infers per-duration mode and per-resolution prices', () => {
     const rows = buildModelSnapshots(
-      snapshotInput({
-        billingMode: JSON.stringify({ 'seedance-video': 'per_duration' }),
-        billingDurationPrice: JSON.stringify({ 'seedance-video': 0.02 }),
-      })
+      perDurationInput({ '720p': 0.027, '1080p': 0.041, '4k': 0.081 })
     )
 
     expect(rows).toHaveLength(1)
     expect(rows[0].name).toBe('seedance-video')
     expect(rows[0].billingMode).toBe('per-duration')
-    expect(rows[0].durationPrice).toBe('0.02')
+    expect(rows[0].durationPrices).toEqual({
+      '720p': '0.027',
+      '1080p': '0.041',
+      '4k': '0.081',
+    })
     expect(rows[0].hasConflict).toBe(false)
   })
 
@@ -68,43 +75,27 @@ describe('model pricing snapshots - per-duration billing', () => {
     expect(getModeLabel('per-duration')).toBe('Per-duration')
   })
 
-  test('per-duration price summary shows USD per second', () => {
-    const rows = buildModelSnapshots(
-      snapshotInput({
-        billingMode: JSON.stringify({ 'seedance-video': 'per_duration' }),
-        billingDurationPrice: JSON.stringify({ 'seedance-video': 0.02 }),
-      })
+  test('per-duration price summary lists each configured resolution', () => {
+    const [row] = buildModelSnapshots(
+      perDurationInput({ '720p': 0.027, '1080p': 0.041, '4k': 0.081 })
     )
 
-    expect(getPriceSummary(rows[0], identity)).toBe('$0.02 / second')
-    expect(getPriceDetail(rows[0], identity)).toBe(
+    expect(getPriceSummary(row, identity)).toBe(
+      '720p $0.027 · 1080p $0.041 · 4k $0.081'
+    )
+    expect(getPriceDetail(row, identity)).toBe(
       'Charged by generated duration'
     )
   })
 
   test('isBasePricingUnset treats per-duration as configured', () => {
-    const rows = buildModelSnapshots(
-      snapshotInput({
-        billingMode: JSON.stringify({ 'seedance-video': 'per_duration' }),
-        billingDurationPrice: JSON.stringify({ 'seedance-video': 0.02 }),
-      })
-    )
-
-    expect(isBasePricingUnset(rows[0])).toBe(false)
+    const [row] = buildModelSnapshots(perDurationInput({ '720p': 0.027 }))
+    expect(isBasePricingUnset(row)).toBe(false)
   })
 
-  test('snapshot signature captures duration price changes', () => {
-    const base = snapshotInput({
-      billingMode: JSON.stringify({ 'seedance-video': 'per_duration' }),
-      billingDurationPrice: JSON.stringify({ 'seedance-video': 0.02 }),
-    })
-    const changed = snapshotInput({
-      billingMode: JSON.stringify({ 'seedance-video': 'per_duration' }),
-      billingDurationPrice: JSON.stringify({ 'seedance-video': 0.04 }),
-    })
-
-    const [before] = buildModelSnapshots(base)
-    const [after] = buildModelSnapshots(changed)
+  test('snapshot signature captures resolution price changes', () => {
+    const [before] = buildModelSnapshots(perDurationInput({ '720p': 0.027 }))
+    const [after] = buildModelSnapshots(perDurationInput({ '720p': 0.031 }))
 
     expect(getSnapshotSignature(before)).not.toBe(getSnapshotSignature(after))
   })

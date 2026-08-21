@@ -17,6 +17,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/samber/lo"
 
 	"github.com/gin-gonic/gin"
@@ -462,6 +463,21 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	otherRatios := map[string]float64{
 		"seconds": float64(min(aliReq.Parameters.Duration, relaycommon.MaxTaskDurationSeconds)),
 	}
+
+	// 按时长计费：分辨率单价从配置读取，不再依赖内置 aliRatios 倍率表。
+	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModePerDuration {
+		resolution := strings.ToUpper(aliReq.Parameters.Resolution)
+		if aliReq.Parameters.Size != "" {
+			if r, err := sizeToResolution(aliReq.Parameters.Size); err == nil {
+				resolution = r
+			}
+		}
+		if ratio, ok := billing_setting.GetBillingDurationResolutionRatio(info.OriginModelName, resolution); ok && ratio != 1.0 {
+			otherRatios["resolution"] = ratio
+		}
+		return otherRatios
+	}
+
 	ratios, err := ProcessAliOtherRatios(aliReq)
 	if err != nil {
 		return otherRatios

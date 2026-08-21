@@ -19,6 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { splitBillingExprAndRequestRules } from '@/features/pricing/lib/billing-expr'
 
 import { safeJsonParse } from '../utils/json-parser'
+import {
+  DURATION_RESOLUTION_KEYS,
+  type DurationResolutionKey,
+} from './model-pricing-core'
 import { formatPricingNumber } from './pricing-format'
 
 export type ModelPricingSnapshotInput = {
@@ -45,7 +49,7 @@ export type ModelPricingSnapshot = {
   imageRatio?: string
   audioRatio?: string
   audioCompletionRatio?: string
-  durationPrice?: string
+  durationPrices?: Partial<Record<DurationResolutionKey, string>>
   billingMode?: string
   billingExpr?: string
   requestRuleExpr?: string
@@ -121,9 +125,13 @@ export const getPriceSummary = (
     return row.price ? `$${row.price} / ${t('request')}` : t('Unset price')
   }
   if (row.billingMode === 'per-duration') {
-    return row.durationPrice
-      ? `$${row.durationPrice} / ${t('second')}`
-      : t('Unset price')
+    const entries = DURATION_RESOLUTION_KEYS.filter((key) =>
+      hasPricingValue(row.durationPrices?.[key])
+    )
+    if (entries.length === 0) return t('Unset price')
+    return entries
+      .map((key) => `${key} $${row.durationPrices?.[key]}`)
+      .join(' · ')
   }
 
   const inputPrice = ratioToPrice(row.ratio)
@@ -229,10 +237,9 @@ export const buildModelSnapshots = ({
     fallback: {},
     context: 'billing expression',
   })
-  const billingDurationPriceMap = safeJsonParse<Record<string, number>>(
-    billingDurationPrice,
-    { fallback: {}, context: 'billing duration price' }
-  )
+  const billingDurationPriceMap = safeJsonParse<
+    Record<string, Record<string, number>>
+  >(billingDurationPrice, { fallback: {}, context: 'billing duration price' })
 
   const modelNames = new Set([
     ...Object.keys(priceMap),
@@ -257,7 +264,15 @@ export const buildModelSnapshots = ({
     const image = imageMap[name]?.toString() || ''
     const audio = audioMap[name]?.toString() || ''
     const audioCompletion = audioCompletionMap[name]?.toString() || ''
-    const durationPrice = billingDurationPriceMap[name]?.toString() || ''
+    const rawDurationPrices = billingDurationPriceMap[name]
+    const durationPrices: Partial<Record<DurationResolutionKey, string>> = {}
+    if (rawDurationPrices) {
+      DURATION_RESOLUTION_KEYS.forEach((key) => {
+        if (rawDurationPrices[key] != null) {
+          durationPrices[key] = String(rawDurationPrices[key])
+        }
+      })
+    }
 
     const modeForModel = billingModeMap[name]
     if (modeForModel === 'tiered_expr') {
@@ -277,7 +292,7 @@ export const buildModelSnapshots = ({
         imageRatio: image,
         audioRatio: audio,
         audioCompletionRatio: audioCompletion,
-        durationPrice,
+        durationPrices,
         hasConflict: false,
       }
     }
@@ -294,7 +309,7 @@ export const buildModelSnapshots = ({
         imageRatio: image,
         audioRatio: audio,
         audioCompletionRatio: audioCompletion,
-        durationPrice,
+        durationPrices,
         hasConflict: false,
       }
     }
@@ -309,7 +324,7 @@ export const buildModelSnapshots = ({
       imageRatio: image,
       audioRatio: audio,
       audioCompletionRatio: audioCompletion,
-      durationPrice,
+      durationPrices,
       billingMode: price !== '' ? 'per-request' : 'per-token',
       hasConflict:
         price !== '' &&
@@ -335,7 +350,15 @@ export const getSnapshotSignature = (snapshot?: ModelPricingSnapshot) => {
     imageRatio: snapshot.imageRatio || '',
     audioRatio: snapshot.audioRatio || '',
     audioCompletionRatio: snapshot.audioCompletionRatio || '',
-    durationPrice: snapshot.durationPrice || '',
+    durationPrices: snapshot.durationPrices
+      ? DURATION_RESOLUTION_KEYS.reduce(
+          (acc, key) => {
+            acc[key] = snapshot.durationPrices?.[key] || ''
+            return acc
+          },
+          {} as Record<DurationResolutionKey, string>
+        )
+      : {},
     billingMode: snapshot.billingMode || 'per-token',
     billingExpr: snapshot.billingExpr || '',
     requestRuleExpr: snapshot.requestRuleExpr || '',

@@ -18,6 +18,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
@@ -171,12 +172,21 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 
 	seconds := ResolveVeoDuration(req.Metadata, req.Duration, req.Seconds)
 	resolution := ResolveVeoResolution(req.Metadata, req.Size)
-	resRatio := VeoResolutionRatio(info.UpstreamModelName, resolution)
 
-	return map[string]float64{
-		"seconds":    float64(seconds),
-		"resolution": resRatio,
+	ratios := map[string]float64{
+		"seconds": float64(seconds),
 	}
+
+	// 按时长计费：分辨率单价从配置读取，不再依赖硬编码倍率。
+	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModePerDuration {
+		if ratio, ok := billing_setting.GetBillingDurationResolutionRatio(info.OriginModelName, resolution); ok && ratio != 1.0 {
+			ratios["resolution"] = ratio
+		}
+		return ratios
+	}
+
+	ratios["resolution"] = VeoResolutionRatio(info.UpstreamModelName, resolution)
+	return ratios
 }
 
 // FetchTask polls task status via the Gemini operations GET endpoint.

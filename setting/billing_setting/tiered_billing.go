@@ -2,6 +2,8 @@ package billing_setting
 
 import (
 	"fmt"
+	"math"
+	"strings"
 
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -17,18 +19,27 @@ const (
 	BillingDurationPriceField = "billing_duration_price"
 )
 
+// billing_duration_price 的值是"分辨率档位 → 每秒单价（美元/秒）"的映射。
+// "default" 为兜底档位：请求分辨率不在档位列表时按它计费。
+const (
+	DurationPriceDefault = "default"
+	DurationPrice720p    = "720p"
+	DurationPrice1080p   = "1080p"
+	DurationPrice4k      = "4k"
+)
+
 // BillingSetting is managed by config.GlobalConfig.Register.
 // DB keys: billing_setting.billing_mode, billing_setting.billing_expr, billing_setting.billing_duration_price
 type BillingSetting struct {
-	BillingMode          map[string]string  `json:"billing_mode"`
-	BillingExpr          map[string]string  `json:"billing_expr"`
-	BillingDurationPrice map[string]float64 `json:"billing_duration_price"`
+	BillingMode          map[string]string             `json:"billing_mode"`
+	BillingExpr          map[string]string             `json:"billing_expr"`
+	BillingDurationPrice map[string]map[string]float64 `json:"billing_duration_price"`
 }
 
 var billingSetting = BillingSetting{
 	BillingMode:          make(map[string]string),
 	BillingExpr:          make(map[string]string),
-	BillingDurationPrice: make(map[string]float64),
+	BillingDurationPrice: make(map[string]map[string]float64),
 }
 
 func init() {
@@ -59,15 +70,98 @@ func GetBillingExprCopy() map[string]string {
 	return lo.Assign(billingSetting.BillingExpr)
 }
 
-// GetBillingDurationPrice 返回模型在按时长计费模式下的每秒单价（美元/秒）。
-// 第二个返回值表示该模型是否配置了时长单价。
-func GetBillingDurationPrice(model string) (float64, bool) {
-	price, ok := billingSetting.BillingDurationPrice[model]
-	return price, ok
+// GetBillingDurationPrices 返回模型在按时长计费模式下的"分辨率档位 → 每秒单价"
+// 映射（键为 DurationPriceDefault/DurationPrice720p/DurationPrice1080p/DurationPrice4k）。
+// 返回的是拷贝，调用方不应修改。
+func GetBillingDurationPrices(model string) map[string]float64 {
+	prices := billingSetting.BillingDurationPrice[model]
+	if len(prices) == 0 {
+		return nil
+	}
+	out := make(map[string]float64, len(prices))
+	for k, v := range prices {
+		out[k] = v
+	}
+	return out
 }
 
-func GetBillingDurationPriceCopy() map[string]float64 {
-	return lo.Assign(billingSetting.BillingDurationPrice)
+// GetBillingDurationPrice 返回按时长计费模型的基准单价（美元/秒），作为
+// ModelPriceHelperPerCall 的固定价基础。解析优先级：
+// default > 720p > 1080p > 4k > 其余档位最小值；均未配置时返回 false。
+func GetBillingDurationPrice(model string) (float64, bool) {
+	prices := GetBillingDurationPrices(model)
+	if len(prices) == 0 {
+		return 0, false
+	}
+	if price := prices[DurationPriceDefault]; price > 0 {
+		return price, true
+	}
+	for _, key := range []string{DurationPrice720p, DurationPrice1080p, DurationPrice4k} {
+		if price := prices[key]; price > 0 {
+			return price, true
+		}
+	}
+	minPrice := math.MaxFloat64
+	found := false
+	for _, price := range prices {
+		if price > 0 && price < minPrice {
+			minPrice = price
+			found = true
+		}
+	}
+	if !found {
+		return 0, false
+	}
+	return minPrice, true
+}
+
+// NormalizeResolution 把请求中的原始分辨率/尺寸字符串归一化为计费档位键。
+// 无法识别的输入返回空串，调用方按兜底单价（default）处理。
+func NormalizeResolution(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	switch {
+	case strings.Contains(s, "4k"), strings.Contains(s, "4096"), strings.Contains(s, "3840"):
+		return DurationPrice4k
+	case strings.Contains(s, "1080"), strings.Contains(s, "fullhd"), strings.Contains(s, "1920"):
+		return DurationPrice1080p
+	case strings.Contains(s, "720"), strings.Contains(s, "1280"):
+		return DurationPrice720p
+	}
+	return ""
+}
+
+// GetBillingDurationResolutionRatio 返回模型在指定原始分辨率下的计费倍率
+// （分辨率单价 / 基准单价），供适配器作为 OtherRatio "resolution" 使用。
+// 分辨率不在档位列表时返回 1.0（按基准单价计费）。
+// 第二个返回值表示该模型是否配置了时长单价。
+func GetBillingDurationResolutionRatio(model, rawResolution string) (float64, bool) {
+	base, ok := GetBillingDurationPrice(model)
+	if !ok || base <= 0 {
+		return 0, false
+	}
+	prices := GetBillingDurationPrices(model)
+	if key := NormalizeResolution(rawResolution); key != "" {
+		if price := prices[key]; price > 0 {
+			return price / base, true
+		}
+	}
+	return 1.0, true
+}
+
+func GetBillingDurationPriceCopy() map[string]map[string]float64 {
+	src := billingSetting.BillingDurationPrice
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]float64, len(src))
+	for model, prices := range src {
+		cp := make(map[string]float64, len(prices))
+		for k, v := range prices {
+			cp[k] = v
+		}
+		out[model] = cp
+	}
+	return out
 }
 
 func GetPricingSyncData(base map[string]any) map[string]any {

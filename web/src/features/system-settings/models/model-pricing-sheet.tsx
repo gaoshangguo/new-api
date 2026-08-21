@@ -64,16 +64,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
 import {
+  DURATION_PRICE_FIELD_BY_KEY,
+  DURATION_RESOLUTION_KEYS,
   EMPTY_LANE_ENABLED,
   EMPTY_LANE_PRICES,
   buildPreviewRows,
   createInitialLaneState,
   createModelPricingSchema,
+  durationResolutionTitleKeys,
   hasValue,
   laneConfigs,
   numericDraftRegex,
   ratioFieldByLane,
   toNumberOrNull,
+  type DurationResolutionKey,
   type LaneKey,
   type ModelPricingFormValues,
   type ModelRatioData,
@@ -170,7 +174,10 @@ export const ModelPricingEditorPanel = forwardRef<
       imageRatio: '',
       audioRatio: '',
       audioCompletionRatio: '',
-      durationPrice: '',
+      durationPrice720p: '',
+      durationPrice1080p: '',
+      durationPrice4k: '',
+      durationPriceDefault: '',
     },
   })
 
@@ -188,7 +195,10 @@ export const ModelPricingEditorPanel = forwardRef<
         imageRatio: editData.imageRatio || '',
         audioRatio: editData.audioRatio || '',
         audioCompletionRatio: editData.audioCompletionRatio || '',
-        durationPrice: editData.durationPrice || '',
+        durationPrice720p: editData.durationPrices?.['720p'] || '',
+        durationPrice1080p: editData.durationPrices?.['1080p'] || '',
+        durationPrice4k: editData.durationPrices?.['4k'] || '',
+        durationPriceDefault: editData.durationPrices?.default || '',
       })
       let nextMode: PricingMode
       if (editData.billingMode === 'tiered_expr') {
@@ -214,7 +224,10 @@ export const ModelPricingEditorPanel = forwardRef<
         imageRatio: '',
         audioRatio: '',
         audioCompletionRatio: '',
-        durationPrice: '',
+        durationPrice720p: '',
+        durationPrice1080p: '',
+        durationPrice4k: '',
+        durationPriceDefault: '',
       })
       setPricingMode('per-token')
       setBillingExpr('')
@@ -396,9 +409,14 @@ export const ModelPricingEditorPanel = forwardRef<
 
     if (
       pricingMode === 'per-duration' &&
-      toNumberOrNull(form.getValues('durationPrice')) === null
+      !DURATION_RESOLUTION_KEYS.some((key) => {
+        const price = toNumberOrNull(
+          form.getValues(DURATION_PRICE_FIELD_BY_KEY[key])
+        )
+        return price !== null && price > 0
+      })
     ) {
-      nextWarnings.push(t('Duration price must be a positive number.'))
+      nextWarnings.push(t('At least one duration price is required.'))
     }
 
     if (
@@ -426,10 +444,15 @@ export const ModelPricingEditorPanel = forwardRef<
 
   const validatePricingValues = useCallback(() => {
     if (pricingMode === 'per-duration') {
-      const durationPrice = toNumberOrNull(form.getValues('durationPrice'))
-      if (durationPrice === null || durationPrice <= 0) {
-        form.setError('durationPrice', {
-          message: t('Duration price must be a positive number.'),
+      const hasValidPrice = DURATION_RESOLUTION_KEYS.some((key) => {
+        const price = toNumberOrNull(
+          form.getValues(DURATION_PRICE_FIELD_BY_KEY[key])
+        )
+        return price !== null && price > 0
+      })
+      if (!hasValidPrice) {
+        form.setError('durationPriceDefault', {
+          message: t('At least one duration price is required.'),
         })
         return false
       }
@@ -464,6 +487,13 @@ export const ModelPricingEditorPanel = forwardRef<
 
   const buildSubmitData = useCallback(
     (values: ModelPricingFormValues) => {
+      const durationPrices: Partial<Record<DurationResolutionKey, string>> =
+        {}
+      DURATION_RESOLUTION_KEYS.forEach((key) => {
+        const value = values[DURATION_PRICE_FIELD_BY_KEY[key]]
+        if (value && value !== '') durationPrices[key] = value
+      })
+
       const data: ModelRatioData = {
         name: values.name.trim(),
         billingMode: pricingMode,
@@ -475,7 +505,8 @@ export const ModelPricingEditorPanel = forwardRef<
         imageRatio: values.imageRatio || '',
         audioRatio: values.audioRatio || '',
         audioCompletionRatio: values.audioCompletionRatio || '',
-        durationPrice: values.durationPrice || '',
+        durationPrices:
+          Object.keys(durationPrices).length > 0 ? durationPrices : undefined,
       }
 
       if (pricingMode === 'tiered_expr') {
@@ -682,42 +713,49 @@ export const ModelPricingEditorPanel = forwardRef<
 
                   <TabsContent value='per-duration' className='pt-0'>
                     <FieldGroup className='gap-5'>
-                      <FormField
-                        control={form.control}
-                        name='durationPrice'
-                        render={({ field }) => (
-                          <FormItem className='contents'>
-                            <Field>
-                              <FieldLabel>{t('Duration price')}</FieldLabel>
-                              <FormControl>
-                                <InputGroup>
-                                  <InputGroupAddon>$</InputGroupAddon>
-                                  <InputGroupInput
-                                    inputMode='decimal'
-                                    placeholder='0.02'
-                                    {...field}
-                                    onChange={(event) => {
-                                      const value = event.target.value
-                                      if (numericDraftRegex.test(value)) {
-                                        field.onChange(value)
-                                      }
-                                    }}
-                                  />
-                                  <InputGroupAddon align='inline-end'>
-                                    {t('per second')}
-                                  </InputGroupAddon>
-                                </InputGroup>
-                              </FormControl>
-                              <FieldDescription>
-                                {t(
-                                  'Cost in USD per second of generated media, charged by the actual task duration.'
-                                )}
-                              </FieldDescription>
-                              <FormMessage />
-                            </Field>
-                          </FormItem>
+                      <div className='grid gap-3 sm:grid-cols-2'>
+                        {DURATION_RESOLUTION_KEYS.map((key) => (
+                          <FormField
+                            key={key}
+                            control={form.control}
+                            name={DURATION_PRICE_FIELD_BY_KEY[key]}
+                            render={({ field }) => (
+                              <FormItem className='contents'>
+                                <Field>
+                                  <FieldLabel>
+                                    {t(durationResolutionTitleKeys[key])}
+                                  </FieldLabel>
+                                  <FormControl>
+                                    <InputGroup>
+                                      <InputGroupAddon>$</InputGroupAddon>
+                                      <InputGroupInput
+                                        inputMode='decimal'
+                                        placeholder='0.02'
+                                        {...field}
+                                        onChange={(event) => {
+                                          const value = event.target.value
+                                          if (numericDraftRegex.test(value)) {
+                                            field.onChange(value)
+                                          }
+                                        }}
+                                      />
+                                      <InputGroupAddon align='inline-end'>
+                                        {t('per second')}
+                                      </InputGroupAddon>
+                                    </InputGroup>
+                                  </FormControl>
+                                  <FormMessage />
+                                </Field>
+                              </FormItem>
+                            )}
+                          />
+                        ))}
+                      </div>
+                      <p className='text-muted-foreground text-xs leading-5'>
+                        {t(
+                          'Cost per second of generated media by output resolution. Requests whose resolution is not listed fall back to the fallback price.'
                         )}
-                      />
+                      </p>
                     </FieldGroup>
                   </TabsContent>
                 </Tabs>

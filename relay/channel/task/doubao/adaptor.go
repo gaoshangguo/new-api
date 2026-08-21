@@ -18,6 +18,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
@@ -135,21 +136,29 @@ func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, req *http.Request, _ *r
 	return nil
 }
 
-// EstimateBilling 根据请求 metadata 中的输出分辨率、是否包含视频输入与时长，
-// 返回相对基准价的计费 OtherRatio。其中 "seconds" 供按时长计费模式使用，
-// "video_input" 为分辨率/输入类型相对基准价的倍率（两种模式通用）。
+// EstimateBilling 根据请求 metadata 中的输出分辨率与时长，返回计费 OtherRatio。
+// 按时长计费（per_duration）：分辨率单价从配置读取，不再依赖内置倍率表。
+// 其余模式：沿用内置 videoPriceTable 的相对基准倍率。
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
 		return nil
 	}
 	ratios := make(map[string]float64)
-	hasVideo := hasVideoInMetadata(req.Metadata)
 	resolution, _ := req.Metadata["resolution"].(string)
-	ratio, ok := GetVideoInputRatio(info.OriginModelName, resolution, hasVideo)
-	if ok && ratio != 1.0 {
-		ratios["video_input"] = ratio
+
+	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModePerDuration {
+		if ratio, ok := billing_setting.GetBillingDurationResolutionRatio(info.OriginModelName, resolution); ok && ratio != 1.0 {
+			ratios["resolution"] = ratio
+		}
+	} else {
+		hasVideo := hasVideoInMetadata(req.Metadata)
+		ratio, ok := GetVideoInputRatio(info.OriginModelName, resolution, hasVideo)
+		if ok && ratio != 1.0 {
+			ratios["video_input"] = ratio
+		}
 	}
+
 	// 时长作为计费乘数，必须是用户输入并经上限钳制，防止溢出成负扣费。
 	if seconds := resolveDurationSeconds(req.Duration, req.Seconds); seconds > 0 {
 		ratios["seconds"] = float64(seconds)

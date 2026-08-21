@@ -18,6 +18,7 @@ import (
 	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
@@ -121,8 +122,17 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 
 	ratios := map[string]float64{
 		"seconds": float64(seconds),
-		"size":    1,
 	}
+
+	// 按时长计费：分辨率单价从配置读取，不再依赖硬编码尺寸倍率。
+	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModePerDuration {
+		if ratio, ok := billing_setting.GetBillingDurationResolutionRatio(info.OriginModelName, size); ok && ratio != 1.0 {
+			ratios["resolution"] = ratio
+		}
+		return ratios
+	}
+
+	ratios["size"] = 1
 	if size == "1792x1024" || size == "1024x1792" {
 		ratios["size"] = 1.666667
 	}

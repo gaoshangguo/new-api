@@ -705,26 +705,40 @@ function PriceSection(props: {
 
   if (
     props.model.billing_mode === 'per_duration' &&
-    props.model.billing_duration_price != null
+    props.model.billing_duration_price != null &&
+    Object.keys(props.model.billing_duration_price).length > 0
   ) {
-    const priceInUSD = props.showRechargePrice
-      ? (props.model.billing_duration_price * props.priceRate) /
-        props.usdExchangeRate
-      : props.model.billing_duration_price
+    const prices = props.model.billing_duration_price
+    const entries = Object.entries(prices)
+    const formatted = (value: number) =>
+      formatCurrencyFromUSD(
+        props.showRechargePrice
+          ? (value * props.priceRate) / props.usdExchangeRate
+          : value,
+        { digitsLarge: 4, digitsSmall: 4, abbreviate: false }
+      )
     return (
       <section>
         <SectionTitle>{t('Base Price')}</SectionTitle>
-        <div className='flex items-baseline justify-between'>
-          <span className='text-muted-foreground text-sm'>
-            {t('Per second')}
-          </span>
-          <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
-            {formatCurrencyFromUSD(priceInUSD, {
-              digitsLarge: 4,
-              digitsSmall: 4,
-              abbreviate: false,
-            })}
-          </span>
+        <div className='bg-muted/20 rounded-lg border'>
+          {entries.map(([resolution, price]) => (
+            <div
+              key={resolution}
+              className='flex items-baseline justify-between gap-4 border-b px-3 py-2 last:border-b-0'
+            >
+              <span className='text-muted-foreground text-sm'>
+                {resolution === 'default'
+                  ? t('Fallback price')
+                  : resolution}
+              </span>
+              <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
+                {formatted(price)}
+                <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+                  / {t('second')}
+                </span>
+              </span>
+            </div>
+          ))}
         </div>
       </section>
     )

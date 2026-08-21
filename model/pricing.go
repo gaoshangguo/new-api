@@ -35,7 +35,7 @@ type Pricing struct {
 	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types"`
 	BillingMode            string                  `json:"billing_mode,omitempty"`
 	BillingExpr            string                  `json:"billing_expr,omitempty"`
-	BillingDurationPrice   *float64                `json:"billing_duration_price,omitempty"`
+	BillingDurationPrice   map[string]float64      `json:"billing_duration_price,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
 }
 
@@ -408,10 +408,9 @@ func updatePricing() {
 				pricing.BillingExpr = expr
 			}
 		case billing_setting.BillingModePerDuration:
-			if price, ok := billing_setting.GetBillingDurationPrice(model); ok && price > 0 {
+			if prices := billing_setting.GetBillingDurationPrices(model); len(prices) > 0 {
 				pricing.BillingMode = billingMode
-				durationPrice := price
-				pricing.BillingDurationPrice = &durationPrice
+				pricing.BillingDurationPrice = prices
 			}
 		}
 		pricingMap = append(pricingMap, pricing)

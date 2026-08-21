@@ -309,9 +309,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       'billing_setting.billing_expr': parseJsonRecord<string>(
         modelRatios['billing_setting.billing_expr']
       ),
-      'billing_setting.billing_duration_price': parseJsonRecord<number>(
-        modelRatios['billing_setting.billing_duration_price']
-      ),
+      'billing_setting.billing_duration_price': parseJsonRecord<
+        Record<string, number>
+      >(modelRatios['billing_setting.billing_duration_price']),
     }
   }, [modelRatios])
 
@@ -338,7 +338,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
 
   const performSync = useCallback(
     async (currentRatios: ParsedRatios): Promise<boolean> => {
-      const finalRatios: Record<string, Record<string, number | string>> = {
+      const finalRatios: Record<string, Record<string, unknown>> = {
         ModelRatio: { ...currentRatios.ModelRatio },
         CompletionRatio: { ...currentRatios.CompletionRatio },
         CacheRatio: { ...currentRatios.CacheRatio },

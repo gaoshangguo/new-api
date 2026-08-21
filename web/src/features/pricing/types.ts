@@ -54,8 +54,8 @@ export type PricingModel = {
   billing_mode?: string
   /** Raw expression describing dynamic / tiered billing */
   billing_expr?: string
-  /** USD price per second of generated media for per-duration billing */
-  billing_duration_price?: number
+  /** USD price per second by output resolution (keys like "720p"/"1080p"/"4k"/"default") for per-duration billing */
+  billing_duration_price?: Record<string, number>
   /** Pricing version returned by backend, useful for cache busting */
   pricing_version?: string
   /**

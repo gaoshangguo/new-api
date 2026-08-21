@@ -33,7 +33,10 @@ export const createModelPricingSchema = (t: (key: string) => string) =>
     imageRatio: z.string().optional(),
     audioRatio: z.string().optional(),
     audioCompletionRatio: z.string().optional(),
-    durationPrice: z.string().optional(),
+    durationPrice720p: z.string().optional(),
+    durationPrice1080p: z.string().optional(),
+    durationPrice4k: z.string().optional(),
+    durationPriceDefault: z.string().optional(),
   })
 
 export type ModelPricingFormValues = z.infer<
@@ -54,6 +57,35 @@ export type LaneKey =
   | 'audioInput'
   | 'audioOutput'
 
+export type DurationResolutionKey = '720p' | '1080p' | '4k' | 'default'
+
+export const DURATION_RESOLUTION_KEYS: DurationResolutionKey[] = [
+  '720p',
+  '1080p',
+  '4k',
+  'default',
+]
+
+export const DURATION_PRICE_FIELD_BY_KEY: Record<
+  DurationResolutionKey,
+  keyof ModelPricingFormValues
+> = {
+  '720p': 'durationPrice720p',
+  '1080p': 'durationPrice1080p',
+  '4k': 'durationPrice4k',
+  default: 'durationPriceDefault',
+}
+
+export const durationResolutionTitleKeys: Record<
+  DurationResolutionKey,
+  string
+> = {
+  '720p': '720p price',
+  '1080p': '1080p price',
+  '4k': '4k price',
+  default: 'Fallback price',
+}
+
 export type ModelRatioData = {
   name: string
   price?: string
@@ -64,7 +96,7 @@ export type ModelRatioData = {
   imageRatio?: string
   audioRatio?: string
   audioCompletionRatio?: string
-  durationPrice?: string
+  durationPrices?: Partial<Record<DurationResolutionKey, string>>
   billingMode?: PricingMode
   billingExpr?: string
   requestRuleExpr?: string
@@ -247,15 +279,16 @@ export function buildPreviewRows(
   }
 
   if (mode === 'per-duration') {
-    return [
-      {
-        key: 'durationPrice',
-        label: t('Duration price'),
-        value: values.durationPrice
-          ? `$${values.durationPrice}`
-          : t('Empty'),
-      },
-    ]
+    const rows: PreviewRow[] = DURATION_RESOLUTION_KEYS.map((key) => ({
+      key: `duration-${key}`,
+      label: t(durationResolutionTitleKeys[key]),
+      value: values[DURATION_PRICE_FIELD_BY_KEY[key]]
+        ? `$${values[DURATION_PRICE_FIELD_BY_KEY[key]]}`
+        : t('Empty'),
+    }))
+    return rows.length > 0
+      ? rows
+      : [{ key: 'durationPrice', label: t('Duration price'), value: t('Empty') }]
   }
 
   return [
