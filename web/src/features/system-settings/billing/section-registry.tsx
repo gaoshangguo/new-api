@@ -24,6 +24,7 @@ import { QuotaSettingsSection } from '../general/quota-settings-section'
 import { PaymentSettingsSection } from '../integrations/payment-settings-section'
 import { RatioSettingsCard } from '../models/ratio-settings-card'
 import { PriceVersionSection } from './price-version-section'
+import { UserModelRatioSection } from './user-model-ratio-section'
 import type { BillingSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 
@@ -128,6 +129,13 @@ const BILLING_SECTIONS = [
         toolPricesDefault={settings['tool_price_setting.prices']}
         visibleTabs={['groups']}
       />
+    ),
+  },
+  {
+    id: 'user-model-discounts',
+    titleKey: 'User Model Discounts',
+    build: (settings: BillingSettings) => (
+      <UserModelRatioSection defaultValue={settings.UserModelRatio ?? ''} />
     ),
   },
   {

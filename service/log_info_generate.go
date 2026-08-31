@@ -116,6 +116,12 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 		adminInfo["local_count_tokens"] = isLocalCountTokens
 	}
 
+	// 用户级模型倍率覆盖审计：标记本次请求的组倍率来自用户模型覆盖（admin-only）。
+	if relayInfo != nil && relayInfo.PriceData.GroupRatioInfo.HasUserModelRatio {
+		adminInfo["user_model_ratio_override"] = true
+		adminInfo["user_model_ratio"] = relayInfo.PriceData.GroupRatioInfo.GroupRatio
+	}
+
 	// P0-15 结构化路由轨迹：用户可见摘要 + 管理员可见明细。
 	if trace := model.GetRoutingTrace(ctx); trace != nil {
 		other["routing_trace"] = trace.RoutingSummary()

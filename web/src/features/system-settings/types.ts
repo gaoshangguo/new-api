@@ -283,6 +283,7 @@ export type BillingSettings = {
   GroupRatio: string
   UserUsableGroups: string
   GroupGroupRatio: string
+  UserModelRatio: string
   AutoGroups: string
   MaxTokenAutoGroups: number
   DefaultUseAutoGroup: boolean

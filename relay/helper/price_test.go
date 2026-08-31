@@ -181,6 +181,177 @@ func TestModelPriceHelperTieredRejectsPreConsumeOverflow(t *testing.T) {
 	require.Equal(t, common.QuotaClampOverflow, clamp.Kind)
 }
 
+func TestHandleGroupRatioUserModelOverridePriority(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"group_ratio_setting.group_ratio":            `{"default":1,"vip":0.8}`,
+		"group_ratio_setting.group_group_ratio":      `{"default":{"vip":0.7}}`,
+		"user_model_ratio_setting.user_model_ratio":  `{"100":{"gpt-4o":0.5}}`,
+		"quota_setting.enable_free_model_pre_consume": "false",
+	}))
+
+	cases := []struct {
+		name         string
+		userId       int
+		model        string
+		userGroup    string
+		usingGroup   string
+		autoGroup    string
+		expected     float64
+		hasUserModel bool
+	}{
+		{
+			name:         "user model override wins over group special ratio",
+			userId:       100,
+			model:        "gpt-4o",
+			userGroup:    "default",
+			usingGroup:   "vip",
+			expected:     0.5,
+			hasUserModel: true,
+		},
+		{
+			name:         "group special ratio wins when no user override",
+			userId:       101,
+			model:        "gpt-4o",
+			userGroup:    "default",
+			usingGroup:   "vip",
+			expected:     0.7,
+			hasUserModel: false,
+		},
+		{
+			name:         "plain group ratio when nothing overrides",
+			userId:       101,
+			model:        "gpt-4o",
+			userGroup:    "default",
+			usingGroup:   "default",
+			expected:     1,
+			hasUserModel: false,
+		},
+		{
+			name:         "user model override wins over auto_group",
+			userId:       100,
+			model:        "gpt-4o",
+			userGroup:    "default",
+			usingGroup:   "default",
+			autoGroup:    "vip",
+			expected:     0.5,
+			hasUserModel: true,
+		},
+		{
+			name:         "other models fall back to group resolution",
+			userId:       100,
+			model:        "claude-3-5-sonnet",
+			userGroup:    "default",
+			usingGroup:   "default",
+			expected:     1,
+			hasUserModel: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			if tc.autoGroup != "" {
+				ctx.Set("auto_group", tc.autoGroup)
+			}
+
+			info := &relaycommon.RelayInfo{
+				UserId:          tc.userId,
+				OriginModelName: tc.model,
+				UserGroup:       tc.userGroup,
+				UsingGroup:      tc.usingGroup,
+			}
+
+			result := HandleGroupRatio(ctx, info)
+			require.Equal(t, tc.expected, result.GroupRatio)
+			require.Equal(t, tc.hasUserModel, result.HasUserModelRatio)
+		})
+	}
+}
+
+func TestModelPriceHelperUserModelRatioOverrideBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+	savedModelRatios := ratio_setting.ModelRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(savedModelRatios))
+	})
+
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"user_model_ratio_setting.user_model_ratio": `{"100":{"gpt-4o":0.5},"102":{"gpt-4o":0}}`,
+		"group_ratio_setting.group_ratio":            `{"default":1}`,
+		"quota_setting.enable_free_model_pre_consume": "false",
+	}))
+	modelRatios, err := common.Marshal(map[string]float64{"gpt-4o": 30})
+	require.NoError(t, err)
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(string(modelRatios)))
+
+	cases := []struct {
+		name          string
+		userId        int
+		expectedQuota int
+		expectFree    bool
+	}{
+		{
+			name:          "discounted user pre-consumes at override ratio",
+			userId:        100,
+			expectedQuota: 15000, // 1000 * 30 * 0.5
+		},
+		{
+			name:          "zero override ratio pre-consumes nothing",
+			userId:        102,
+			expectedQuota: 0,
+			expectFree:    true,
+		},
+		{
+			name:          "no override falls back to group ratio",
+			userId:        101,
+			expectedQuota: 30000, // 1000 * 30 * 1
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			ctx.Set("group", "default")
+
+			info := &relaycommon.RelayInfo{
+				UserId:          tc.userId,
+				OriginModelName: "gpt-4o",
+				UserGroup:       "default",
+				UsingGroup:      "default",
+			}
+
+			priceData, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedQuota, priceData.QuotaToPreConsume)
+			require.Equal(t, tc.expectFree, priceData.FreeModel)
+		})
+	}
+}
+
 func TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	savedModelPrices := ratio_setting.ModelPrice2JSONString()

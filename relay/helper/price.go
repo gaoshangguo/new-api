@@ -56,8 +56,13 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 	}
 
 	// check user group special ratio
-	userGroupRatio, ok := ratio_setting.GetGroupGroupRatio(relayInfo.UserGroup, relayInfo.UsingGroup)
-	if ok {
+	// 用户级模型倍率覆盖（语义 A：替换组倍率）优先级最高，其次才是
+	// 用户组→使用组特殊倍率，最后退回使用组倍率。覆盖也优先于 auto_group，
+	// 因为覆盖按用户请求的模型名解析，与最终使用组无关。
+	if userModelRatio, ok := ratio_setting.GetUserModelRatio(relayInfo.UserId, relayInfo.OriginModelName); ok {
+		groupRatioInfo.GroupRatio = userModelRatio
+		groupRatioInfo.HasUserModelRatio = true
+	} else if userGroupRatio, ok := ratio_setting.GetGroupGroupRatio(relayInfo.UserGroup, relayInfo.UsingGroup); ok {
 		// user group special ratio
 		groupRatioInfo.GroupSpecialRatio = userGroupRatio
 		groupRatioInfo.GroupRatio = userGroupRatio
