@@ -363,7 +363,10 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	userGroupRatio, hasUserGroupRatio := ratio_setting.GetGroupGroupRatio(group, group)
 
 	var finalGroupRatio float64
-	if hasUserGroupRatio {
+	// 用户级模型倍率覆盖优先级最高（语义 A：替换组倍率），与 HandleGroupRatio 一致。
+	if userModelRatio, ok := ratio_setting.GetUserModelRatio(task.UserId, modelName); ok {
+		finalGroupRatio = userModelRatio
+	} else if hasUserGroupRatio {
 		finalGroupRatio = userGroupRatio
 	} else {
 		finalGroupRatio = groupRatio

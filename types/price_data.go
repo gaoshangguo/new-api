@@ -11,6 +11,9 @@ type GroupRatioInfo struct {
 	GroupRatio        float64
 	GroupSpecialRatio float64
 	HasSpecialRatio   bool
+	// HasUserModelRatio 标记本次请求的 GroupRatio 来自用户级模型倍率覆盖
+	//（语义 A：完全替换组倍率）。用于消费日志审计。
+	HasUserModelRatio bool
 }
 
 type PriceData struct {
