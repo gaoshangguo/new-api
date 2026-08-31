@@ -94,13 +94,12 @@ const UserModelRatioRowEditor = memo(function UserModelRatioRowEditor({
     }))
   }, [models, vendorFilter])
 
-  // 用户搜索：初始以已保存的用户 ID 为关键词，命中后可直接显示用户名。
+  // 用户搜索：挂载即加载用户列表（keyword 为空返回全量），输入时按关键词过滤。
   const [userKeyword, setUserKeyword] = useState(row.userId)
   const debouncedUserKeyword = useDebouncedValue(userKeyword)
   const userSearch = useQuery({
     queryKey: ['user-model-ratio-user-search', debouncedUserKeyword],
     queryFn: () => searchUsers({ keyword: debouncedUserKeyword, page_size: 10 }),
-    enabled: debouncedUserKeyword.trim().length > 0,
   })
   const userOptions = useMemo(
     () =>
@@ -138,7 +137,6 @@ const UserModelRatioRowEditor = memo(function UserModelRatioRowEditor({
           allowCustomValue
           placeholder={t('Select user')}
           emptyText={t('No users found')}
-          openOnFocus={false}
           onValueChange={(value) => {
             setUserKeyword(value)
             onRowChange({ ...row, userId: value })
@@ -172,7 +170,6 @@ const UserModelRatioRowEditor = memo(function UserModelRatioRowEditor({
           value={row.model}
           allowCustomValue
           placeholder={t('Select a model')}
-          openOnFocus={false}
           onValueChange={handleModelChange}
         />
       </TableCell>
