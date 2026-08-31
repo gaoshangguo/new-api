@@ -129,6 +129,7 @@
     "A deprecated alias requires a replacement model": "Un alias obsolète requiert un modèle de remplacement",
     "A focused home for keys, balance, routing, and service health.": "Un accueil dédié aux clés, au solde, au routage et à l'état du service.",
     "A project groups API keys with a shared budget and model controls.": "Un projet regroupe des clés API avec un budget et des contrôles partagés.",
+    "A ratio is a decimal multiplier: 0.8 means 20% off (8折), 1 means list price, 2 means double.": "Le ratio est un multiplicateur décimal : 0,8 = -20 % (8折), 1 = prix normal, 2 = double.",
     "A solution for every AI builder": "Une solution pour chaque créateur IA",
     "A valid effective time is required": "Une date d’effet valide est requise",
     "A valid token ID is required": "Un ID de clé valide est requis",

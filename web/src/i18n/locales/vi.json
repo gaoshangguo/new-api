@@ -129,6 +129,7 @@
     "A deprecated alias requires a replacement model": "Bí danh ngừng dùng cần mô hình thay thế",
     "A focused home for keys, balance, routing, and service health.": "Trang tổng quan tập trung cho khóa, số dư, định tuyến và trạng thái dịch vụ.",
     "A project groups API keys with a shared budget and model controls.": "Dự án nhóm các API key với ngân sách và kiểm soát mô hình dùng chung.",
+    "A ratio is a decimal multiplier: 0.8 means 20% off (8折), 1 means list price, 2 means double.": "Tỷ lệ là số thập phân: 0.8 = giảm 20%, 1 = giá gốc, 2 = gấp đôi.",
     "A solution for every AI builder": "Giải pháp cho mọi người xây dựng AI",
     "A valid effective time is required": "Vui lòng nhập thời gian có hiệu lực hợp lệ",
     "A valid token ID is required": "Vui lòng nhập ID key hợp lệ",

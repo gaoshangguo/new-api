@@ -129,6 +129,7 @@
     "A deprecated alias requires a replacement model": "非推奨エイリアスには代替モデルが必要です",
     "A focused home for keys, balance, routing, and service health.": "キー、残高、ルーティング、サービス状態を集約したホームです。",
     "A project groups API keys with a shared budget and model controls.": "プロジェクトはAPIキーをグループ化し、予算とモデル制御を共有します。",
+    "A ratio is a decimal multiplier: 0.8 means 20% off (8折), 1 means list price, 2 means double.": "倍率は小数で指定します：0.8 は 20% 引き（8折）、1 は定価、2 は倍額です。",
     "A solution for every AI builder": "すべての AI 開発者に合うソリューション",
     "A valid effective time is required": "有効な発効日時を入力してください",
     "A valid token ID is required": "有効なキーIDを入力してください",
