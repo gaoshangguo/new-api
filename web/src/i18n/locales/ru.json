@@ -129,6 +129,7 @@
     "A deprecated alias requires a replacement model": "Устаревший псевдоним требует замещающую модель",
     "A focused home for keys, balance, routing, and service health.": "Единый экран для ключей, баланса, маршрутов и состояния сервиса.",
     "A project groups API keys with a shared budget and model controls.": "Проект группирует API-ключи с общим бюджетом и ограничениями моделей.",
+    "A ratio is a decimal multiplier: 0.8 means 20% off (8折), 1 means list price, 2 means double.": "Коэффициент задаётся десятичной дробью: 0.8 = скидка 20%, 1 = полная цена, 2 = двойная цена.",
     "A solution for every AI builder": "Решение для каждого создателя ИИ",
     "A valid effective time is required": "Требуется корректное время вступления в силу",
     "A valid token ID is required": "Требуется корректный ID ключа",

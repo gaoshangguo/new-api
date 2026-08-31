@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/select'
 import { TableCell, TableRow } from '@/components/ui/table'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
-import { searchUsers } from '@/features/users/api'
+import { getUser, searchUsers } from '@/features/users/api'
 
 import { useUpdateOption } from '../hooks/use-update-option'
 import { SettingsSection } from '../components/settings-section'
@@ -101,14 +101,29 @@ const UserModelRatioRowEditor = memo(function UserModelRatioRowEditor({
     queryKey: ['user-model-ratio-user-search', debouncedUserKeyword],
     queryFn: () => searchUsers({ keyword: debouncedUserKeyword, page_size: 10 }),
   })
-  const userOptions = useMemo(
-    () =>
-      (userSearch.data?.data?.items ?? []).map((user) => ({
-        value: String(user.id),
-        label: `${user.username} (#${user.id})`,
-      })),
-    [userSearch.data]
-  )
+  // 按已保存的用户 ID 解析用户名，保证选中/回填后外显用户名而非裸 ID。
+  const selectedUserQuery = useQuery({
+    queryKey: ['user-model-ratio-user-by-id', row.userId],
+    queryFn: () => getUser(Number(row.userId)),
+    enabled: /^\d+$/.test(row.userId),
+  })
+  const userOptions = useMemo(() => {
+    const options = (userSearch.data?.data?.items ?? []).map((user) => ({
+      value: String(user.id),
+      label: `${user.username} (#${user.id})`,
+    }))
+    const selected = selectedUserQuery.data?.data
+    if (
+      selected &&
+      !options.some((option) => option.value === String(selected.id))
+    ) {
+      options.push({
+        value: String(selected.id),
+        label: `${selected.username} (#${selected.id})`,
+      })
+    }
+    return options
+  }, [selectedUserQuery.data, userSearch.data])
 
   const ratioInvalid = useMemo(() => {
     const text = row.ratio.trim()
@@ -178,7 +193,7 @@ const UserModelRatioRowEditor = memo(function UserModelRatioRowEditor({
           <Input
             type='number'
             min={0}
-            step={0.1}
+            step={0.05}
             value={row.ratio}
             aria-invalid={ratioInvalid}
             aria-label={`${t('Ratio')}: ${row.model || t('Select a model')}`}
@@ -318,6 +333,11 @@ export const UserModelRatioSection = memo(function UserModelRatioSection({
             )}
           </div>
           <div>
+            {t(
+              'A ratio is a decimal multiplier: 0.8 means 20% off (8折), 1 means list price, 2 means double.'
+            )}
+          </div>
+          <div>
             <span className='font-medium'>{t('Format')}:</span>{' '}
             <code className='bg-muted rounded px-1 py-0.5 text-xs'>
               {'{"userId": {"modelName": 0.9}}'}
@@ -356,6 +376,9 @@ export const UserModelRatioSection = memo(function UserModelRatioSection({
           getRowKey={(row) => row.id}
           emptyClassName='text-muted-foreground py-8'
           emptyContent={t('No user model discounts configured')}
+          // 行内 Combobox 下拉是绝对定位浮层，必须放开容器裁剪否则被截断。
+          containerProps={{ style: { overflow: 'visible' } }}
+          tableProps={{ style: { overflow: 'visible' } }}
           columns={[
             { id: 'user', header: t('User') },
             { id: 'vendor', header: t('Vendor') },

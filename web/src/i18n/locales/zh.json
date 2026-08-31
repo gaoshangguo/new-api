@@ -129,6 +129,7 @@
     "A deprecated alias requires a replacement model": "已下线别名必须配置替代模型",
     "A focused home for keys, balance, routing, and service health.": "集中展示密钥、余额、路由和服务健康状态。",
     "A project groups API keys with a shared budget and model controls.": "项目将多个 API Key 分组，并共享预算与模型控制。",
+    "A ratio is a decimal multiplier: 0.8 means 20% off (8折), 1 means list price, 2 means double.": "倍率为小数倍率：0.8 表示八折，1 表示原价，2 表示两倍。",
     "A solution for every AI builder": "每一位 AI 从业者，都能找到合适的方案",
     "A valid effective time is required": "请填写有效的生效时间",
     "A valid token ID is required": "请输入有效的 Key ID",
