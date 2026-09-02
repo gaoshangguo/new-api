@@ -30,6 +30,7 @@ import {
   getPriceSummary,
   type ModelRow,
 } from './model-pricing-snapshots'
+import type { PriceDisplay } from './model-pricing-core'
 
 const filterBySelectedValues = (
   rowValue: unknown,
@@ -44,6 +45,7 @@ type BuildModelRatioColumnsOptions = {
   onEdit: (model: ModelRow) => void
   deleteDisabled?: boolean
   t: (key: string) => string
+  display?: PriceDisplay
 }
 
 export function buildModelRatioColumns({
@@ -51,6 +53,7 @@ export function buildModelRatioColumns({
   onEdit,
   deleteDisabled,
   t,
+  display,
 }: BuildModelRatioColumnsOptions): ColumnDef<ModelRow>[] {
   return [
     {
@@ -130,16 +133,16 @@ export function buildModelRatioColumns({
       cell: ({ row }) => (
         <div className='flex min-w-0 flex-col gap-1'>
           <span className='truncate font-medium'>
-            {getPriceSummary(row.original, t)}
+            {getPriceSummary(row.original, t, display)}
           </span>
           <span className='text-muted-foreground truncate text-xs'>
-            {getPriceDetail(row.original, t)}
+            {getPriceDetail(row.original, t, display)}
           </span>
         </div>
       ),
       sortingFn: (rowA, rowB) =>
-        getPriceSummary(rowA.original, t).localeCompare(
-          getPriceSummary(rowB.original, t)
+        getPriceSummary(rowA.original, t, display).localeCompare(
+          getPriceSummary(rowB.original, t, display)
         ),
       meta: { label: t('Price summary') },
     },

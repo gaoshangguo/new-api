@@ -109,6 +109,11 @@ export type PreviewRow = {
   multiline?: boolean
 }
 
+export type PriceDisplay = {
+  symbol: string
+  toDisplay: (usdValue: string) => string
+}
+
 export const numericDraftRegex = /^(\d+(\.\d*)?|\.\d*)?$/
 
 export const EMPTY_LANE_PRICES: Record<LaneKey, string> = {
@@ -253,7 +258,8 @@ export function buildPreviewRows(
   promptPrice: string,
   lanePrices: Record<LaneKey, string>,
   laneEnabled: Record<LaneKey, boolean>,
-  t: (key: string) => string
+  t: (key: string) => string,
+  display: PriceDisplay
 ): PreviewRow[] {
   if (mode === 'tiered_expr') {
     const effectiveExpr = combineBillingExpr(billingExpr, requestRuleExpr)
@@ -273,19 +279,24 @@ export function buildPreviewRows(
       {
         key: 'price',
         label: 'ModelPrice',
-        value: values.price || t('Empty'),
+        value: values.price
+          ? `${display.symbol}${display.toDisplay(values.price)}`
+          : t('Empty'),
       },
     ]
   }
 
   if (mode === 'per-duration') {
-    const rows: PreviewRow[] = DURATION_RESOLUTION_KEYS.map((key) => ({
-      key: `duration-${key}`,
-      label: t(durationResolutionTitleKeys[key]),
-      value: values[DURATION_PRICE_FIELD_BY_KEY[key]]
-        ? `$${values[DURATION_PRICE_FIELD_BY_KEY[key]]}`
-        : t('Empty'),
-    }))
+    const rows: PreviewRow[] = DURATION_RESOLUTION_KEYS.map((key) => {
+      const durationPrice = values[DURATION_PRICE_FIELD_BY_KEY[key]]
+      return {
+        key: `duration-${key}`,
+        label: t(durationResolutionTitleKeys[key]),
+        value: durationPrice
+          ? `${display.symbol}${display.toDisplay(durationPrice)}`
+          : t('Empty'),
+      }
+    })
     return rows.length > 0
       ? rows
       : [{ key: 'durationPrice', label: t('Duration price'), value: t('Empty') }]
@@ -295,14 +306,16 @@ export function buildPreviewRows(
     {
       key: 'inputPrice',
       label: t('Input price'),
-      value: promptPrice ? `$${promptPrice}` : t('Empty'),
+      value: promptPrice
+        ? `${display.symbol}${display.toDisplay(promptPrice)}`
+        : t('Empty'),
     },
     {
       key: 'completion',
       label: t('Completion price'),
       value:
         laneEnabled.completion && lanePrices.completion
-          ? `$${lanePrices.completion}`
+          ? `${display.symbol}${display.toDisplay(lanePrices.completion)}`
           : t('Empty'),
     },
     {
@@ -310,7 +323,7 @@ export function buildPreviewRows(
       label: t('Cache read price'),
       value:
         laneEnabled.cache && lanePrices.cache
-          ? `$${lanePrices.cache}`
+          ? `${display.symbol}${display.toDisplay(lanePrices.cache)}`
           : t('Empty'),
     },
     {
@@ -318,7 +331,7 @@ export function buildPreviewRows(
       label: t('Cache write price'),
       value:
         laneEnabled.createCache && lanePrices.createCache
-          ? `$${lanePrices.createCache}`
+          ? `${display.symbol}${display.toDisplay(lanePrices.createCache)}`
           : t('Empty'),
     },
     {
@@ -326,7 +339,7 @@ export function buildPreviewRows(
       label: t('Image input price'),
       value:
         laneEnabled.image && lanePrices.image
-          ? `$${lanePrices.image}`
+          ? `${display.symbol}${display.toDisplay(lanePrices.image)}`
           : t('Empty'),
     },
     {
@@ -334,7 +347,7 @@ export function buildPreviewRows(
       label: t('Audio input price'),
       value:
         laneEnabled.audioInput && lanePrices.audioInput
-          ? `$${lanePrices.audioInput}`
+          ? `${display.symbol}${display.toDisplay(lanePrices.audioInput)}`
           : t('Empty'),
     },
     {
@@ -342,7 +355,7 @@ export function buildPreviewRows(
       label: t('Audio output price'),
       value:
         laneEnabled.audioOutput && lanePrices.audioOutput
-          ? `$${lanePrices.audioOutput}`
+          ? `${display.symbol}${display.toDisplay(lanePrices.audioOutput)}`
           : t('Empty'),
     },
   ]

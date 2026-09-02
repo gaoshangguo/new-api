@@ -22,8 +22,19 @@ import { safeJsonParse } from '../utils/json-parser'
 import {
   DURATION_RESOLUTION_KEYS,
   type DurationResolutionKey,
+  type PriceDisplay,
 } from './model-pricing-core'
 import { formatPricingNumber } from './pricing-format'
+
+const USD_DISPLAY: PriceDisplay = {
+  symbol: '$',
+  toDisplay: (usdValue) => usdValue,
+}
+
+const formatPrice = (
+  usdValue: string | undefined,
+  display: PriceDisplay = USD_DISPLAY
+) => (usdValue ? `${display.symbol}${display.toDisplay(usdValue)}` : '')
 
 export type ModelPricingSnapshotInput = {
   modelPrice: string
@@ -116,13 +127,16 @@ const getExpressionSummary = (
 
 export const getPriceSummary = (
   row: ModelPricingSnapshot,
-  t: (key: string) => string
+  t: (key: string) => string,
+  display: PriceDisplay = USD_DISPLAY
 ) => {
   if (row.billingMode === 'tiered_expr') {
     return getExpressionSummary(row, t)
   }
   if (row.billingMode === 'per-request') {
-    return row.price ? `$${row.price} / ${t('request')}` : t('Unset price')
+    return row.price
+      ? `${formatPrice(row.price, display)} / ${t('request')}`
+      : t('Unset price')
   }
   if (row.billingMode === 'per-duration') {
     const entries = DURATION_RESOLUTION_KEYS.filter((key) =>
@@ -130,7 +144,7 @@ export const getPriceSummary = (
     )
     if (entries.length === 0) return t('Unset price')
     return entries
-      .map((key) => `${key} $${row.durationPrices?.[key]}`)
+      .map((key) => `${key} ${formatPrice(row.durationPrices?.[key], display)}`)
       .join(' · ')
   }
 
@@ -147,13 +161,16 @@ export const getPriceSummary = (
   ].filter(hasPricingValue).length
 
   return extraCount > 0
-    ? `${t('Input')} $${inputPrice} · ${extraCount} ${t('extras')}`
-    : `${t('Input')} $${inputPrice}`
+    ? `${t('Input')} ${formatPrice(inputPrice, display)} · ${extraCount} ${t(
+        'extras'
+      )}`
+    : `${t('Input')} ${formatPrice(inputPrice, display)}`
 }
 
 export const getPriceDetail = (
   row: ModelPricingSnapshot,
-  t: (key: string) => string
+  t: (key: string) => string,
+  display: PriceDisplay = USD_DISPLAY
 ) => {
   if (row.billingMode === 'tiered_expr') {
     return row.requestRuleExpr
@@ -172,11 +189,20 @@ export const getPriceDetail = (
 
   const details = [
     row.completionRatio &&
-      `${t('Output')} $${ratioToPrice(row.completionRatio, inputPrice)}`,
+      `${t('Output')} ${formatPrice(
+        ratioToPrice(row.completionRatio, inputPrice),
+        display
+      )}`,
     row.cacheRatio &&
-      `${t('Cache')} $${ratioToPrice(row.cacheRatio, inputPrice)}`,
+      `${t('Cache')} ${formatPrice(
+        ratioToPrice(row.cacheRatio, inputPrice),
+        display
+      )}`,
     row.createCacheRatio &&
-      `${t('Cache write')} $${ratioToPrice(row.createCacheRatio, inputPrice)}`,
+      `${t('Cache write')} ${formatPrice(
+        ratioToPrice(row.createCacheRatio, inputPrice),
+        display
+      )}`,
   ]
     .filter(Boolean)
     .slice(0, 2)

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -29,6 +30,51 @@ import {
   SettingsControlGroup,
   SettingsSwitchField,
 } from '../components/settings-form-layout'
+import { numericDraftRegex } from './model-pricing-core'
+import { usePricingCurrency, type PricingCurrencyInfo } from './pricing-currency'
+
+export function CurrencyPriceInput(props: {
+  value: string
+  placeholder?: string
+  disabled?: boolean
+  currency: PricingCurrencyInfo
+  onUsdChange: (usd: string) => void
+  onBlur?: () => void
+}) {
+  const { value, placeholder, disabled, currency, onUsdChange, onBlur } = props
+  const [draft, setDraft] = useState(() => currency.toDisplay(value))
+  const [focused, setFocused] = useState(false)
+
+  useEffect(() => {
+    if (!focused) {
+      setDraft(currency.toDisplay(value))
+    }
+  }, [currency, focused, value])
+
+  const handleChange = (raw: string) => {
+    if (!numericDraftRegex.test(raw)) return
+    setDraft(raw)
+    onUsdChange(currency.toUsd(raw))
+  }
+
+  const handleBlur = () => {
+    setFocused(false)
+    setDraft(currency.toDisplay(currency.toUsd(draft)))
+    onBlur?.()
+  }
+
+  return (
+    <InputGroupInput
+      inputMode='decimal'
+      value={draft}
+      placeholder={placeholder}
+      disabled={disabled}
+      onChange={(event) => handleChange(event.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={handleBlur}
+    />
+  )
+}
 
 export function PriceInput(props: {
   value: string
@@ -36,17 +82,20 @@ export function PriceInput(props: {
   disabled?: boolean
   onChange: (value: string) => void
 }) {
+  const currency = usePricingCurrency()
   return (
     <InputGroup>
-      <InputGroupAddon>$</InputGroupAddon>
-      <InputGroupInput
-        inputMode='decimal'
+      <InputGroupAddon>{currency.symbol}</InputGroupAddon>
+      <CurrencyPriceInput
         value={props.value}
         placeholder={props.placeholder}
         disabled={props.disabled}
-        onChange={(event) => props.onChange(event.target.value)}
+        currency={currency}
+        onUsdChange={props.onChange}
       />
-      <InputGroupAddon align='inline-end'>$/1M</InputGroupAddon>
+      <InputGroupAddon align='inline-end'>
+        {currency.perMillionSuffix}
+      </InputGroupAddon>
     </InputGroup>
   )
 }
@@ -85,7 +134,7 @@ export function PriceLane(props: {
       />
       <p className='text-muted-foreground text-xs'>
         {props.enabled
-          ? t('USD price per 1M tokens.')
+          ? t('Price per 1M tokens.')
           : t('Disabled lanes are omitted on save.')}
       </p>
     </SettingsControlGroup>
