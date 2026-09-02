@@ -68,6 +68,7 @@ import {
   type ModelRow,
 } from './model-pricing-snapshots'
 import { buildModelRatioColumns } from './model-ratio-table-columns'
+import { usePricingCurrency } from './pricing-currency'
 
 type ModelRatioVisualEditorProps = {
   savedModelPrice: string
@@ -143,6 +144,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
   ref
 ) {
   const { t } = useTranslation()
+  const currency = usePricingCurrency()
   const isMobile = useMediaQuery('(max-width: 767px)')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
@@ -466,8 +468,9 @@ const ModelRatioVisualEditorComponent = forwardRef<
         onEdit: handleEdit,
         deleteDisabled: filterMode === 'unset',
         t,
+        display: currency,
       }),
-    [handleEdit, handleDelete, filterMode, t]
+    [handleEdit, handleDelete, filterMode, t, currency]
   )
 
   const ensurePageInRange = useCallback((pageCount: number) => {

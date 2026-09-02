@@ -27,8 +27,15 @@ import {
   isBasePricingUnset,
   type ModelPricingSnapshotInput,
 } from '../model-pricing-snapshots'
+import { usdToDisplayValue } from '../pricing-currency'
+import type { PriceDisplay } from '../model-pricing-core'
 
 const identity = (key: string) => key
+
+const cnyDisplay: PriceDisplay = {
+  symbol: '¥',
+  toDisplay: (usdValue) => usdToDisplayValue(usdValue, 7.3),
+}
 
 function snapshotInput(overrides: Partial<ModelPricingSnapshotInput> = {}) {
   const empty: Record<string, string> = {}
@@ -98,5 +105,30 @@ describe('model pricing snapshots - per-duration billing', () => {
     const [after] = buildModelSnapshots(perDurationInput({ '720p': 0.031 }))
 
     expect(getSnapshotSignature(before)).not.toBe(getSnapshotSignature(after))
+  })
+})
+
+describe('model pricing snapshots - currency display', () => {
+  test('per-token summary converts the USD input price into the display currency', () => {
+    const [row] = buildModelSnapshots(
+      snapshotInput({
+        modelRatio: JSON.stringify({ 'gpt-4o': '1.25' }),
+      })
+    )
+
+    expect(getPriceSummary(row, identity, cnyDisplay)).toBe('Input ¥18.25')
+    expect(getPriceDetail(row, identity, cnyDisplay)).toBe(
+      'Base input price only'
+    )
+  })
+
+  test('per-duration summary renders each resolution in the display currency', () => {
+    const [row] = buildModelSnapshots(
+      perDurationInput({ '720p': 0.027, '1080p': 0.041 })
+    )
+
+    expect(getPriceSummary(row, identity, cnyDisplay)).toBe(
+      '720p ¥0.1971 · 1080p ¥0.2993'
+    )
   })
 })

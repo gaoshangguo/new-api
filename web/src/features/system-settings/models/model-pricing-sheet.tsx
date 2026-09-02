@@ -51,7 +51,6 @@ import { Input } from '@/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
-  InputGroupInput,
 } from '@/components/ui/input-group'
 import {
   Sheet,
@@ -83,8 +82,9 @@ import {
   type ModelRatioData,
   type PricingMode,
 } from './model-pricing-core'
-import { PriceInput, PriceLane } from './model-pricing-inputs'
+import { CurrencyPriceInput, PriceInput, PriceLane } from './model-pricing-inputs'
 import { formatPricingNumber } from './pricing-format'
+import { usePricingCurrency } from './pricing-currency'
 import { TieredPricingEditor } from './tiered-pricing-editor'
 
 export type { ModelRatioData } from './model-pricing-core'
@@ -149,6 +149,7 @@ export const ModelPricingEditorPanel = forwardRef<
   ref
 ) {
   const { t } = useTranslation()
+  const currency = usePricingCurrency()
   const [pricingMode, setPricingMode] = useState<PricingMode>('per-token')
   const [promptPrice, setPromptPrice] = useState('')
   const [lanePrices, setLanePrices] = useState<Record<LaneKey, string>>({
@@ -371,10 +372,12 @@ export const ModelPricingEditorPanel = forwardRef<
         promptPrice,
         lanePrices,
         laneEnabled,
-        t
+        t,
+        currency
       ),
     [
       billingExpr,
+      currency,
       laneEnabled,
       lanePrices,
       pricingMode,
@@ -625,7 +628,7 @@ export const ModelPricingEditorPanel = forwardRef<
                           onChange={handlePromptPriceChange}
                         />
                         <FieldDescription>
-                          {t('USD price per 1M input tokens.')}
+                          {t('Price per 1M input tokens.')}
                         </FieldDescription>
                       </Field>
 
@@ -668,17 +671,15 @@ export const ModelPricingEditorPanel = forwardRef<
                               <FieldLabel>{t('Fixed price')}</FieldLabel>
                               <FormControl>
                                 <InputGroup>
-                                  <InputGroupAddon>$</InputGroupAddon>
-                                  <InputGroupInput
-                                    inputMode='decimal'
+                                  <InputGroupAddon>
+                                    {currency.symbol}
+                                  </InputGroupAddon>
+                                  <CurrencyPriceInput
+                                    value={field.value ?? ''}
                                     placeholder='0.01'
-                                    {...field}
-                                    onChange={(event) => {
-                                      const value = event.target.value
-                                      if (numericDraftRegex.test(value)) {
-                                        field.onChange(value)
-                                      }
-                                    }}
+                                    currency={currency}
+                                    onUsdChange={field.onChange}
+                                    onBlur={field.onBlur}
                                   />
                                   <InputGroupAddon align='inline-end'>
                                     {t('per request')}
@@ -687,7 +688,7 @@ export const ModelPricingEditorPanel = forwardRef<
                               </FormControl>
                               <FieldDescription>
                                 {t(
-                                  'Cost in USD per request, regardless of tokens used.'
+                                  'Cost per request, regardless of tokens used.'
                                 )}
                               </FieldDescription>
                               <FormMessage />
@@ -727,17 +728,15 @@ export const ModelPricingEditorPanel = forwardRef<
                                   </FieldLabel>
                                   <FormControl>
                                     <InputGroup>
-                                      <InputGroupAddon>$</InputGroupAddon>
-                                      <InputGroupInput
-                                        inputMode='decimal'
+                                      <InputGroupAddon>
+                                        {currency.symbol}
+                                      </InputGroupAddon>
+                                      <CurrencyPriceInput
+                                        value={field.value ?? ''}
                                         placeholder='0.02'
-                                        {...field}
-                                        onChange={(event) => {
-                                          const value = event.target.value
-                                          if (numericDraftRegex.test(value)) {
-                                            field.onChange(value)
-                                          }
-                                        }}
+                                        currency={currency}
+                                        onUsdChange={field.onChange}
+                                        onBlur={field.onBlur}
                                       />
                                       <InputGroupAddon align='inline-end'>
                                         {t('per second')}
