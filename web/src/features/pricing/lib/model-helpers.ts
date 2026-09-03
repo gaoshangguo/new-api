@@ -107,3 +107,14 @@ export function replaceModelInPath(path: string, modelName: string): string {
 export function isTokenBasedModel(model: PricingModel): boolean {
   return model.quota_type === QUOTA_TYPE_VALUES.TOKEN
 }
+
+/**
+ * Check if model is billed per generated second (video/task models).
+ */
+export function isPerDurationModel(model: PricingModel): boolean {
+  return (
+    model.billing_mode === 'per_duration' &&
+    model.billing_duration_price != null &&
+    Object.keys(model.billing_duration_price).length > 0
+  )
+}
