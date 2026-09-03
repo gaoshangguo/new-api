@@ -34,6 +34,7 @@ const identity = (key: string) => key
 
 const cnyDisplay: PriceDisplay = {
   symbol: '¥',
+  rate: 7.3,
   toDisplay: (usdValue) => usdToDisplayValue(usdValue, 7.3),
 }
 
