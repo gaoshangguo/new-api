@@ -270,3 +270,38 @@ export function formatRequestPrice(
     abbreviate: false,
   })
 }
+
+/**
+ * Format a compact per-second price summary for per-duration billed models.
+ *
+ * Uses the fallback (default) resolution price when configured, otherwise the
+ * first finite resolution price. Returns an empty string when no per-duration
+ * price is available.
+ */
+export function formatDurationPriceSummary(
+  model: PricingModel,
+  showWithRecharge = false,
+  priceRate = 1,
+  usdExchangeRate = 1
+): string {
+  const prices = model.billing_duration_price
+  if (!prices) return ''
+
+  let value: number | undefined = prices.default
+  if (!Number.isFinite(value)) {
+    value = Object.values(prices).find((v) => Number.isFinite(v))
+  }
+  if (value == null || !Number.isFinite(value)) return ''
+
+  const display = applyRechargeRate(
+    value,
+    showWithRecharge,
+    priceRate,
+    usdExchangeRate
+  )
+  return formatCurrencyFromUSD(display, {
+    digitsLarge: 4,
+    digitsSmall: 4,
+    abbreviate: false,
+  })
+}

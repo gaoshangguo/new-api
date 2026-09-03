@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import * as z from 'zod'
 
 import { combineBillingExpr } from '@/features/pricing/lib/billing-expr'
+import { scaleExprPrices } from '@/features/pricing/lib/tier-expr'
 
 import { formatPricingNumber } from './pricing-format'
 
@@ -111,6 +112,7 @@ export type PreviewRow = {
 
 export type PriceDisplay = {
   symbol: string
+  rate: number
   toDisplay: (usdValue: string) => string
 }
 
@@ -263,12 +265,16 @@ export function buildPreviewRows(
 ): PreviewRow[] {
   if (mode === 'tiered_expr') {
     const effectiveExpr = combineBillingExpr(billingExpr, requestRuleExpr)
+    let previewExpr = effectiveExpr
+    if (previewExpr && display.rate > 0 && display.rate !== 1) {
+      previewExpr = scaleExprPrices(previewExpr, display.rate)
+    }
     return [
       { key: 'mode', label: 'BillingMode', value: 'tiered_expr' },
       {
         key: 'expr',
         label: t('Expression'),
-        value: effectiveExpr || t('Empty'),
+        value: previewExpr || t('Empty'),
         multiline: true,
       },
     ]

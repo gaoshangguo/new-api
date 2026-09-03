@@ -97,11 +97,13 @@ import {
   getTierCacheMode,
   normalizeVisualConfig,
   normalizeVisualTier,
+  scaleExprPrices,
   tryParseVisualConfig,
 } from '@/features/pricing/lib/tier-expr'
 import { cn } from '@/lib/utils'
 
-const PRICE_SUFFIX = '$/1M tokens'
+import { usePricingCurrency } from './pricing-currency'
+
 const CACHE_PRICE_VARS = BILLING_EXTRA_VARS.filter(
   (variable) => variable.group === 'cache'
 )
@@ -519,14 +521,22 @@ type PriceFieldProps = {
 }
 
 function PriceField({ label, hint, value, onChange }: PriceFieldProps) {
+  const currency = usePricingCurrency()
+  const displayValue = currency.enabled
+    ? Number((value * currency.rate).toFixed(10))
+    : value
+  const handleChange = (next: number) => {
+    onChange(currency.enabled ? next / currency.rate : next)
+  }
+
   return (
     <div className='w-36 space-y-0.5'>
       <Label className='text-muted-foreground text-xs'>{label}</Label>
       <DraftNumberInput
         min={0}
         step={0.000001}
-        value={Number.isFinite(value) ? value : 0}
-        onValueChange={onChange}
+        value={Number.isFinite(displayValue) ? displayValue : 0}
+        onValueChange={handleChange}
         className='h-8 w-full'
       />
       {hint && <p className='text-muted-foreground text-xs'>{hint}</p>}
@@ -556,6 +566,7 @@ function VisualTierCard({
   onAddCondition,
 }: VisualTierCardProps) {
   const { t } = useTranslation()
+  const currency = usePricingCurrency()
   const cacheMode = getTierCacheMode(tier)
 
   const handleConditionChange = (
@@ -680,7 +691,7 @@ function VisualTierCard({
         <div className='flex items-center justify-between gap-3'>
           <Label className='text-sm font-semibold'>{t('Token prices')}</Label>
           <span className='bg-muted text-muted-foreground rounded-md px-2 py-1 text-xs'>
-            {PRICE_SUFFIX}
+            {currency.perMillionSuffix} tokens
           </span>
         </div>
 
@@ -882,6 +893,30 @@ type RawExprEditorProps = {
 
 function RawExprEditor({ exprString, onChange }: RawExprEditorProps) {
   const { t } = useTranslation()
+  const currency = usePricingCurrency()
+  const [draft, setDraft] = useState(() =>
+    scaleExprPrices(exprString, currency.rate)
+  )
+  const [focused, setFocused] = useState(false)
+
+  useEffect(() => {
+    if (!focused) {
+      setDraft(scaleExprPrices(exprString, currency.rate))
+    }
+  }, [currency.rate, exprString, focused])
+
+  const handleChange = (value: string) => {
+    setDraft(value)
+    onChange(scaleExprPrices(value, 1 / currency.rate))
+  }
+
+  const handleBlur = () => {
+    setFocused(false)
+    setDraft(
+      scaleExprPrices(scaleExprPrices(draft, 1 / currency.rate), currency.rate)
+    )
+  }
+
   return (
     <div className='space-y-3'>
       <Alert>
@@ -901,8 +936,10 @@ function RawExprEditor({ exprString, onChange }: RawExprEditorProps) {
         </AlertDescription>
       </Alert>
       <Textarea
-        value={exprString}
-        onChange={(event) => onChange(event.target.value)}
+        value={draft}
+        onChange={(event) => handleChange(event.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={handleBlur}
         placeholder='tier("base", p * 3 + c * 15)'
         rows={6}
         className='font-mono text-xs'
@@ -1360,6 +1397,7 @@ type EstimatorProps = {
 
 function CostEstimator({ effectiveExpr }: EstimatorProps) {
   const { t } = useTranslation()
+  const currency = usePricingCurrency()
   const [promptTokens, setPromptTokens] = useState(0)
   const [completionTokens, setCompletionTokens] = useState(0)
   const [extras, setExtras] = useState<ExtraTokenValues>({
@@ -1455,7 +1493,12 @@ function CostEstimator({ effectiveExpr }: EstimatorProps) {
         ) : (
           <div className='flex items-center gap-2'>
             <span className='font-medium'>
-              {t('Estimated quota cost')}: {result.cost.toLocaleString()}
+              {t('Estimated quota cost')}: {currency.symbol}
+              {(
+                currency.enabled ? result.cost * currency.rate : result.cost
+              ).toLocaleString(undefined, {
+                maximumFractionDigits: 4,
+              })}
             </span>
             {result.matchedTier && (
               <Badge variant='outline' className='text-xs'>
@@ -1473,7 +1516,7 @@ function CostEstimator({ effectiveExpr }: EstimatorProps) {
 // LLM prompt helper
 // ---------------------------------------------------------------------------
 
-const LLM_PROMPT_TEMPLATE = `You are an AI API billing expression design assistant. The user needs help designing a billing expression for an AI API gateway.
+const buildLlmPromptTemplate = (priceSuffix: string) => `You are an AI API billing expression design assistant. The user needs help designing a billing expression for an AI API gateway.
 
 ## Expression Language
 
@@ -1513,7 +1556,7 @@ Important: len is NOT affected by auto-exclusion. Tier conditions should use len
 
 ### Price Coefficients
 
-Numbers in the expression are $/1M tokens prices. For example, p * 2.5 means input $2.50/1M tokens.
+Numbers in the expression are ${priceSuffix} prices. For example, p * 2.5 means input ${priceSuffix} 2.50.
 
 ## Expression Examples
 
@@ -1547,7 +1590,7 @@ len <= 128000
 2. Use English tier names, e.g. "base", "standard", "long_context"
 3. Use len for tier conditions (not p), supports <, <=, >, >=
 4. Multi-tier uses nested ternary: cond1 ? tier(...) : (cond2 ? tier(...) : tier(...))
-5. Price coefficients are the provider's official $/1M tokens prices
+5. Price coefficients are the provider's official ${priceSuffix} prices
 6. If cache/image/audio don't need separate pricing, omit those variables; their tokens are included in p/c automatically
 
 Please generate a billing expression based on the model information and pricing requirements provided.`
@@ -1558,14 +1601,16 @@ type LlmPromptHelperProps = {
 
 function LlmPromptHelper({ modelName }: LlmPromptHelperProps) {
   const { t } = useTranslation()
+  const currency = usePricingCurrency()
   const [open, setOpen] = useState(false)
 
   const prompt = useMemo(() => {
+    const template = buildLlmPromptTemplate(currency.perMillionSuffix)
     if (modelName) {
-      return LLM_PROMPT_TEMPLATE + `\n\nCurrent model: ${modelName}`
+      return `${template}\n\nCurrent model: ${modelName}`
     }
-    return LLM_PROMPT_TEMPLATE
-  }, [modelName])
+    return template
+  }, [currency.perMillionSuffix, modelName])
 
   const handleCopy = useCallback(async () => {
     try {

@@ -22,6 +22,36 @@ export const CACHE_MODE_TIMED = 'timed'
 export const CACHE_MODE_GENERIC = 'generic'
 export type CacheMode = typeof CACHE_MODE_TIMED | typeof CACHE_MODE_GENERIC
 
+// 表达式中的价格变量（token 计费变量）；其后的数值系数为单价。
+const PRICE_VAR_NAMES = [
+  'p',
+  'c',
+  'cr',
+  'cc',
+  'cc1h',
+  'img',
+  'img_o',
+  'ai',
+  'ao',
+]
+
+// scaleExprPrices 按 factor 缩放表达式中的价格系数（var * N）。
+// 条件（len <= 200000 等）与请求规则倍率（req(...) * 0.5 等）不是价格，
+// 不会被改写。factor 为 1 时原样返回。
+export function scaleExprPrices(expr: string, factor: number): string {
+  if (!expr || factor === 1) return expr
+  const re = new RegExp(
+    `\\b(${PRICE_VAR_NAMES.join('|')})\\s*\\*\\s*([\\d.eE+-]+)`,
+    'g'
+  )
+  return expr.replace(re, (match, variable: string, num: string) => {
+    const value = Number(num)
+    if (!Number.isFinite(value)) return match
+    const scaled = Number((value * factor).toFixed(10))
+    return `${variable} * ${scaled}`
+  })
+}
+
 export type TierConditionInput = {
   var: 'p' | 'c' | 'len'
   op: '<' | '<=' | '>' | '>='

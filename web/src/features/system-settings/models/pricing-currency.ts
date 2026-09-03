@@ -22,6 +22,7 @@ import { formatPricingNumber } from './pricing-format'
 
 export type PricingCurrencyInfo = {
   enabled: boolean
+  rate: number
   symbol: string
   perMillionSuffix: string
   toDisplay: (usdValue: string) => string
@@ -59,6 +60,7 @@ export function usePricingCurrency(): PricingCurrencyInfo {
 
   return {
     enabled,
+    rate,
     symbol: enabled ? '¥' : '$',
     perMillionSuffix: enabled ? '¥/1M' : '$/1M',
     toDisplay: (usdValue) => usdToDisplayValue(usdValue, rate),

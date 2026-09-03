@@ -28,6 +28,7 @@ import { formatPricingNumber } from './pricing-format'
 
 const USD_DISPLAY: PriceDisplay = {
   symbol: '$',
+  rate: 1,
   toDisplay: (usdValue) => usdValue,
 }
 
