@@ -28,6 +28,7 @@ import {
   type FocusEvent,
   type InputHTMLAttributes,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -64,6 +65,7 @@ import {
   MATCH_LT,
   MATCH_LTE,
   MATCH_RANGE,
+  MATCH_WITHIN,
   SOURCE_HEADER,
   SOURCE_PARAM,
   SOURCE_TIME,
@@ -81,6 +83,7 @@ import {
   type RequestRuleGroup,
   type TimeCondition,
   type TimeFunc,
+  type TimeInterval,
 } from '@/features/pricing/lib/billing-expr'
 import {
   CACHE_MODE_GENERIC,
@@ -984,6 +987,8 @@ function RuleConditionRow({
         return t('Less than or equal')
       case MATCH_RANGE:
         return t('Overnight range')
+      case MATCH_WITHIN:
+        return t('Within range')
       default:
         return mode
     }
@@ -1023,88 +1028,130 @@ function RuleConditionRow({
   }
 
   const handleModeChange = (mode: string) => {
+    if (mode === MATCH_WITHIN) {
+      const timeCond = condition as TimeCondition
+      onChange({
+        ...timeCond,
+        mode,
+        intervals:
+          timeCond.intervals && timeCond.intervals.length > 0
+            ? timeCond.intervals
+            : [{ start: '', end: '', endInclusive: false }],
+      } as RequestCondition)
+      return
+    }
     onChange({ ...condition, mode } as RequestCondition)
   }
 
-  const renderTimeCondition = (timeCond: TimeCondition) => (
-    <>
-      <Select
-        items={[
-          ...TIME_FUNCS.map((fn) => ({
-            value: fn,
-            label: getTimeFuncLabel(fn),
-          })),
-        ]}
-        value={timeCond.timeFunc}
-        onValueChange={(value) =>
-          onChange({ ...timeCond, timeFunc: value as TimeFunc })
-        }
-      >
-        <SelectTrigger className='w-32' size='sm'>
-          <SelectValue>{getTimeFuncLabel(timeCond.timeFunc)}</SelectValue>
-        </SelectTrigger>
-        <SelectContent alignItemWithTrigger={false}>
-          <SelectGroup>
-            {TIME_FUNCS.map((fn) => (
-              <SelectItem key={fn} value={fn}>
-                {getTimeFuncLabel(fn)}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      <Select
-        items={[
-          ...COMMON_TIMEZONES.map((tz) => ({
-            value: tz.value,
-            label: tz.label,
-          })),
-        ]}
-        value={timeCond.timezone}
-        onValueChange={(value) =>
-          value !== null && onChange({ ...timeCond, timezone: value })
-        }
-      >
-        <SelectTrigger className='w-56' size='sm'>
-          <SelectValue>
-            {COMMON_TIMEZONES.find((tz) => tz.value === timeCond.timezone)
-              ?.label ?? timeCond.timezone}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent alignItemWithTrigger={false}>
-          <SelectGroup>
-            {COMMON_TIMEZONES.map((tz) => (
-              <SelectItem key={tz.value} value={tz.value}>
-                {tz.label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      <Select
-        items={[
-          ...matchOptions.map((option) => ({
-            value: option.value,
-            label: getMatchLabel(option.value),
-          })),
-        ]}
-        value={timeCond.mode}
-        onValueChange={(v) => v !== null && handleModeChange(v)}
-      >
-        <SelectTrigger className='w-32' size='sm'>
-          <SelectValue>{getMatchLabel(timeCond.mode)}</SelectValue>
-        </SelectTrigger>
-        <SelectContent alignItemWithTrigger={false}>
-          <SelectGroup>
-            {matchOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {getMatchLabel(option.value)}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      {timeCond.mode === MATCH_RANGE ? (
+  const renderWithinIntervals = (timeCond: TimeCondition) => {
+    const intervals: TimeInterval[] =
+      timeCond.intervals && timeCond.intervals.length > 0
+        ? timeCond.intervals
+        : [{ start: '', end: '', endInclusive: false }]
+    const updateIntervals = (next: TimeInterval[]) =>
+      onChange({ ...timeCond, intervals: next })
+    return (
+      <div className='flex flex-col gap-1.5'>
+        {intervals.map((interval, intervalIndex) => (
+          <div key={intervalIndex} className='flex items-center gap-2'>
+            <DraftNumberInput
+              value={interval.start}
+              onValueChange={(value) =>
+                updateIntervals(
+                  intervals.map((item, itemIndex) =>
+                    itemIndex === intervalIndex
+                      ? { ...item, start: String(value) }
+                      : item
+                  )
+                )
+              }
+              placeholder={t('Start')}
+              className='w-20'
+            />
+            <Select
+              items={[
+                { value: 'lt', label: '<' },
+                { value: 'lte', label: '≤' },
+              ]}
+              value={interval.endInclusive ? 'lte' : 'lt'}
+              onValueChange={(value) => {
+                if (value === null) return
+                updateIntervals(
+                  intervals.map((item, itemIndex) =>
+                    itemIndex === intervalIndex
+                      ? { ...item, endInclusive: value === 'lte' }
+                      : item
+                  )
+                )
+              }}
+            >
+              <SelectTrigger className='w-14' size='sm'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value='lt'>&lt;</SelectItem>
+                  <SelectItem value='lte'>≤</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <DraftNumberInput
+              value={interval.end}
+              onValueChange={(value) =>
+                updateIntervals(
+                  intervals.map((item, itemIndex) =>
+                    itemIndex === intervalIndex
+                      ? { ...item, end: String(value) }
+                      : item
+                  )
+                )
+              }
+              placeholder={t('End')}
+              className='w-20'
+            />
+            {intervals.length > 1 && (
+              <Button
+                variant='ghost'
+                size='icon'
+                onClick={() =>
+                  updateIntervals(
+                    intervals.filter(
+                      (_, itemIndex) => itemIndex !== intervalIndex
+                    )
+                  )
+                }
+                aria-label={t('Remove interval')}
+                className='size-7'
+              >
+                <Trash2 className='text-destructive h-3.5 w-3.5' />
+              </Button>
+            )}
+          </div>
+        ))}
+        <Button
+          variant='ghost'
+          size='sm'
+          className='h-7 px-2 text-xs'
+          onClick={() =>
+            updateIntervals([
+              ...intervals,
+              { start: '', end: '', endInclusive: false },
+            ])
+          }
+        >
+          <Plus className='mr-1 h-3 w-3' />
+          {t('Add interval')}
+        </Button>
+      </div>
+    )
+  }
+
+  const renderTimeCondition = (timeCond: TimeCondition) => {
+    let modeInput: ReactNode
+    if (timeCond.mode === MATCH_WITHIN) {
+      modeInput = renderWithinIntervals(timeCond)
+    } else if (timeCond.mode === MATCH_RANGE) {
+      modeInput = (
         <>
           <DraftNumberInput
             value={timeCond.rangeStart}
@@ -1124,7 +1171,9 @@ function RuleConditionRow({
             className='w-20'
           />
         </>
-      ) : (
+      )
+    } else {
+      modeInput = (
         <DraftNumberInput
           value={timeCond.value}
           onValueChange={(value) =>
@@ -1133,9 +1182,90 @@ function RuleConditionRow({
           placeholder={t('Value')}
           className='w-24'
         />
-      )}
-    </>
-  )
+      )
+    }
+    return (
+      <>
+        <Select
+          items={[
+            ...TIME_FUNCS.map((fn) => ({
+              value: fn,
+              label: getTimeFuncLabel(fn),
+            })),
+          ]}
+          value={timeCond.timeFunc}
+          onValueChange={(value) =>
+            onChange({ ...timeCond, timeFunc: value as TimeFunc })
+          }
+        >
+          <SelectTrigger className='w-32' size='sm'>
+            <SelectValue>{getTimeFuncLabel(timeCond.timeFunc)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent alignItemWithTrigger={false}>
+            <SelectGroup>
+              {TIME_FUNCS.map((fn) => (
+                <SelectItem key={fn} value={fn}>
+                  {getTimeFuncLabel(fn)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <Select
+          items={[
+            ...COMMON_TIMEZONES.map((tz) => ({
+              value: tz.value,
+              label: tz.label,
+            })),
+          ]}
+          value={timeCond.timezone}
+          onValueChange={(value) =>
+            value !== null && onChange({ ...timeCond, timezone: value })
+          }
+        >
+          <SelectTrigger className='w-56' size='sm'>
+            <SelectValue>
+              {COMMON_TIMEZONES.find((tz) => tz.value === timeCond.timezone)
+                ?.label ?? timeCond.timezone}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent alignItemWithTrigger={false}>
+            <SelectGroup>
+              {COMMON_TIMEZONES.map((tz) => (
+                <SelectItem key={tz.value} value={tz.value}>
+                  {tz.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <Select
+          items={[
+            ...matchOptions.map((option) => ({
+              value: option.value,
+              label: getMatchLabel(option.value),
+            })),
+          ]}
+          value={timeCond.mode}
+          onValueChange={(v) => v !== null && handleModeChange(v)}
+        >
+          <SelectTrigger className='w-32' size='sm'>
+            <SelectValue>{getMatchLabel(timeCond.mode)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent alignItemWithTrigger={false}>
+            <SelectGroup>
+              {matchOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {getMatchLabel(option.value)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        {modeInput}
+      </>
+    )
+  }
 
   const renderParamHeaderCondition = (phCond: ParamHeaderCondition) => (
     <>
@@ -1494,8 +1624,9 @@ function CostEstimator({ effectiveExpr }: EstimatorProps) {
           <div className='flex items-center gap-2'>
             <span className='font-medium'>
               {t('Estimated quota cost')}: {currency.symbol}
-              {(
-                currency.enabled ? result.cost * currency.rate : result.cost
+              {(currency.enabled
+                ? result.cost * currency.rate
+                : result.cost
               ).toLocaleString(undefined, {
                 maximumFractionDigits: 4,
               })}
@@ -1516,7 +1647,9 @@ function CostEstimator({ effectiveExpr }: EstimatorProps) {
 // LLM prompt helper
 // ---------------------------------------------------------------------------
 
-const buildLlmPromptTemplate = (priceSuffix: string) => `You are an AI API billing expression design assistant. The user needs help designing a billing expression for an AI API gateway.
+const buildLlmPromptTemplate = (
+  priceSuffix: string
+) => `You are an AI API billing expression design assistant. The user needs help designing a billing expression for an AI API gateway.
 
 ## Expression Language
 

@@ -181,6 +181,7 @@ export const MATCH_LT = 'lt'
 export const MATCH_LTE = 'lte'
 export const MATCH_EXISTS = 'exists'
 export const MATCH_RANGE = 'range'
+export const MATCH_WITHIN = 'within'
 
 export const TIME_FUNCS = ['hour', 'minute', 'weekday', 'month', 'day'] as const
 export type TimeFunc = (typeof TIME_FUNCS)[number]
@@ -219,6 +220,18 @@ export type TimeCondition = {
   value: string
   rangeStart: string
   rangeEnd: string
+  /**
+   * One or more closed intervals used by MATCH_WITHIN (non-overnight range).
+   * Multiple intervals are OR'd together, e.g. `fn >= 9 && fn < 12 || fn >= 14
+   * && fn < 18`. `endInclusive` selects `<` (false) or `<=` (true) on the end.
+   */
+  intervals?: TimeInterval[]
+}
+
+export type TimeInterval = {
+  start: string
+  end: string
+  endInclusive: boolean
 }
 
 export type RequestCondition = TimeCondition | ParamHeaderCondition
@@ -361,6 +374,24 @@ function splitTopLevelAnd(expr: string): string[] {
   return parts.filter(Boolean)
 }
 
+function splitTopLevelOr(expr: string): string[] {
+  const parts: string[] = []
+  let start = 0
+  let depth = 0
+  for (let i = 0; i < expr.length; i += 1) {
+    const c = expr[i]
+    if (c === '(') depth += 1
+    if (c === ')') depth -= 1
+    if (depth === 0 && expr.slice(i, i + 4) === ' || ') {
+      parts.push(expr.slice(start, i).trim())
+      start = i + 4
+      i += 3
+    }
+  }
+  parts.push(expr.slice(start).trim())
+  return parts.filter(Boolean)
+}
+
 function parseExprLiteral(raw: string): string | null {
   const text = raw.trim()
   if (text === 'true' || text === 'false') return text
@@ -372,7 +403,136 @@ function parseExprLiteral(raw: string): string | null {
   }
 }
 
+const TIME_COMPARISON_REGEX =
+  /^(hour|minute|weekday|month|day)\("([^"]+)"\) (>=|<=|<) ([\d.eE+-]+)$/
+
+type TimeComparison = {
+  timeFunc: TimeFunc
+  timezone: string
+  op: '>=' | '<=' | '<'
+  value: string
+}
+
+function parseTimeComparison(expr: string): TimeComparison | null {
+  const m = expr.trim().match(TIME_COMPARISON_REGEX)
+  if (!m) return null
+  return {
+    timeFunc: m[1] as TimeFunc,
+    timezone: m[2],
+    op: m[3] as TimeComparison['op'],
+    value: m[4],
+  }
+}
+
+/** Parses a single within-range: `fn("tz") >= A && fn("tz") < B` (or `<= B`). */
+function parseWithinInterval(expr: string): TimeCondition | null {
+  const text = unwrapOuterParens(expr)
+  const parts = text.split(/\s*&&\s*/)
+  if (parts.length !== 2) return null
+  const lower = parseTimeComparison(parts[0])
+  const upper = parseTimeComparison(parts[1])
+  if (!lower || !upper) return null
+  if (lower.timeFunc !== upper.timeFunc || lower.timezone !== upper.timezone) {
+    return null
+  }
+  if (lower.op !== '>=') return null
+  if (upper.op !== '<' && upper.op !== '<=') return null
+  return {
+    source: 'time',
+    timeFunc: lower.timeFunc,
+    timezone: lower.timezone,
+    mode: MATCH_WITHIN,
+    value: '',
+    rangeStart: '',
+    rangeEnd: '',
+    intervals: [
+      {
+        start: lower.value,
+        end: upper.value,
+        endInclusive: upper.op === '<=',
+      },
+    ],
+  }
+}
+
+/**
+ * Parses a union of within-ranges OR'd together:
+ * `(fn("tz") >= A && fn("tz") < B) || (fn("tz") >= C && fn("tz") < D)`.
+ * Also accepts a single parenthesized within-range.
+ */
+function parseTimeUnion(expr: string): RequestCondition | null {
+  const text = unwrapOuterParens(expr)
+  const parts = splitTopLevelOr(text)
+  if (parts.length === 0) return null
+
+  const intervals: TimeInterval[] = []
+  let timeFunc: TimeFunc | undefined
+  let timezone: string | undefined
+  for (const part of parts) {
+    const interval = parseWithinInterval(part)
+    if (!interval || !interval.intervals || interval.intervals.length !== 1) {
+      return null
+    }
+    if (timeFunc === undefined) {
+      timeFunc = interval.timeFunc
+      timezone = interval.timezone
+    } else if (
+      timeFunc !== interval.timeFunc ||
+      timezone !== interval.timezone
+    ) {
+      return null
+    }
+    intervals.push(interval.intervals[0])
+  }
+
+  if (timeFunc === undefined || timezone === undefined) return null
+
+  return {
+    source: 'time',
+    timeFunc,
+    timezone,
+    mode: MATCH_WITHIN,
+    value: '',
+    rangeStart: '',
+    rangeEnd: '',
+    intervals,
+  }
+}
+
+/** Merges two consecutive same-probe comparisons into a within-range. */
+function mergeWithinRange(a: string, b: string): RequestCondition | null {
+  const lower = parseTimeComparison(a)
+  const upper = parseTimeComparison(b)
+  if (!lower || !upper) return null
+  if (lower.timeFunc !== upper.timeFunc || lower.timezone !== upper.timezone) {
+    return null
+  }
+  if (lower.op !== '>=') return null
+  if (upper.op !== '<' && upper.op !== '<=') return null
+  return {
+    source: 'time',
+    timeFunc: lower.timeFunc,
+    timezone: lower.timezone,
+    mode: MATCH_WITHIN,
+    value: '',
+    rangeStart: '',
+    rangeEnd: '',
+    intervals: [
+      {
+        start: lower.value,
+        end: upper.value,
+        endInclusive: upper.op === '<=',
+      },
+    ],
+  }
+}
+
 function tryParseTimeCondition(expr: string): RequestCondition | null {
+  const union = parseTimeUnion(expr)
+  if (union) return union
+  const within = parseWithinInterval(expr)
+  if (within) return within
+
   let m = expr.match(
     /^(hour|minute|weekday|month|day)\("([^"]+)"\) >= ([\d.eE+-]+) \|\| \1\("\2"\) < ([\d.eE+-]+)$/
   )
@@ -488,10 +648,24 @@ function tryParseRequestConditions(
 ): RequestCondition[] | null {
   const andParts = splitTopLevelAnd(conditionStr)
   const conditions: RequestCondition[] = []
-  for (const part of andParts) {
-    const condition = tryParseRequestCondition(part.trim())
+  let index = 0
+  while (index < andParts.length) {
+    const part = andParts[index].trim()
+    // The generated form of a within-range is `fn >= A && fn < B` without
+    // parens, so `&&` splitting tears it in two. Merge consecutive same-probe
+    // comparisons back into a single within-range condition.
+    const nextPart =
+      index + 1 < andParts.length ? andParts[index + 1].trim() : ''
+    const merged = mergeWithinRange(part, nextPart)
+    if (merged) {
+      conditions.push(merged)
+      index += 2
+      continue
+    }
+    const condition = tryParseRequestCondition(part)
     if (!condition) return null
     conditions.push(condition)
+    index += 1
   }
   return conditions.length > 0 ? conditions : null
 }
@@ -641,6 +815,7 @@ export function getRequestRuleMatchOptions(source: string): MatchOption[] {
       { value: MATCH_EQ, labelKey: 'Equals' },
       { value: MATCH_GTE, labelKey: 'Greater than or equal' },
       { value: MATCH_LT, labelKey: 'Less than' },
+      { value: MATCH_WITHIN, labelKey: 'Within range' },
       { value: MATCH_RANGE, labelKey: 'Overnight range' },
     ]
   }
@@ -686,7 +861,7 @@ export function normalizeCondition(
     const mode = options.some((item) => item.value === timeCond?.mode)
       ? (timeCond?.mode as string)
       : MATCH_GTE
-    return {
+    const normalized: TimeCondition = {
       source: 'time',
       timeFunc,
       timezone: timeCond?.timezone || 'Asia/Shanghai',
@@ -696,6 +871,17 @@ export function normalizeCondition(
         timeCond?.rangeStart == null ? '' : String(timeCond.rangeStart),
       rangeEnd: timeCond?.rangeEnd == null ? '' : String(timeCond.rangeEnd),
     }
+    if (mode === MATCH_WITHIN) {
+      normalized.intervals =
+        Array.isArray(timeCond?.intervals) && timeCond.intervals.length > 0
+          ? timeCond.intervals.map((interval) => ({
+              start: interval.start == null ? '' : String(interval.start),
+              end: interval.end == null ? '' : String(interval.end),
+              endInclusive: Boolean(interval.endInclusive),
+            }))
+          : [{ start: '', end: '', endInclusive: false }]
+    }
+    return normalized
   }
 
   const phCond = cond as Partial<ParamHeaderCondition> | null | undefined
@@ -728,6 +914,27 @@ function buildTimeConditionExpr(cond: TimeCondition): string {
   const { timeFunc, timezone, mode } = normalized
   const tz = JSON.stringify(timezone)
   const fn = `${timeFunc}(${tz})`
+
+  if (mode === MATCH_WITHIN) {
+    const intervals =
+      normalized.intervals && normalized.intervals.length > 0
+        ? normalized.intervals
+        : [{ start: '', end: '', endInclusive: false }]
+    const exprs = intervals
+      .map((interval) => {
+        const s = String(interval.start).trim()
+        const e = String(interval.end).trim()
+        if (!NUMERIC_LITERAL_REGEX.test(s) || !NUMERIC_LITERAL_REGEX.test(e)) {
+          return ''
+        }
+        const op = interval.endInclusive ? '<=' : '<'
+        return `${fn} >= ${s} && ${fn} ${op} ${e}`
+      })
+      .filter(Boolean)
+    if (exprs.length === 0) return ''
+    if (exprs.length === 1) return exprs[0]
+    return exprs.map((e) => `(${e})`).join(' || ')
+  }
 
   if (mode === MATCH_RANGE) {
     const s = normalized.rangeStart.trim()

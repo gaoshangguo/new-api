@@ -33,6 +33,7 @@ import {
   MATCH_GTE,
   MATCH_LT,
   MATCH_RANGE,
+  MATCH_WITHIN,
   SOURCE_TIME,
   normalizeTierLabel,
   parseTiersFromExpr,
@@ -122,6 +123,20 @@ function describeCondition(
   if (cond.source === SOURCE_TIME) {
     const fn = t(TIME_FUNC_LABELS[cond.timeFunc] || cond.timeFunc)
     const tz = cond.timezone || 'UTC'
+    if (cond.mode === MATCH_WITHIN) {
+      const intervals = (
+        cond.intervals && cond.intervals.length > 0
+          ? cond.intervals
+          : [
+              {
+                start: cond.rangeStart,
+                end: cond.rangeEnd,
+                endInclusive: false,
+              },
+            ]
+      ).map((interval) => `${interval.start}~${interval.end}`)
+      return `${fn} ${intervals.join(' or ')} (${tz})`
+    }
     if (cond.mode === MATCH_RANGE) {
       return `${fn} ${cond.rangeStart}:00~${cond.rangeEnd}:00 (${tz})`
     }
