@@ -142,21 +142,27 @@ print(response.json()["candidates"][0]["content"]["parts"][0]["text"])
 
 ## 6. 排障与安全检查
 
-| 状态码 | 原因 | 处理 |
-| --- | --- | --- |
-| 401/403 | Key 无效/过期/无权限 | 检查 Key 状态与模型权限 |
-| 429 | 配额/限流超限 | 检查日/月预算、RPM/TPM/并发设置 |
-| 5xx | 上游或平台错误 | 记录请求 ID 后联系支持 |
+<table>
+  <thead><tr><th>状态码</th><th>原因</th><th>处理</th></tr></thead>
+  <tbody>
+    <tr><td>401/403</td><td>Key 无效/过期/无权限</td><td>检查 Key 状态与模型权限</td></tr>
+    <tr><td>429</td><td>配额/限流超限</td><td>检查日/月预算、RPM/TPM/并发设置</td></tr>
+    <tr><td>5xx</td><td>上游或平台错误</td><td>记录请求 ID 后联系支持</td></tr>
+  </tbody>
+</table>
 
 ## 7. 错误码
 
 所有网关错误响应均采用 OpenAI 兼容结构，`code` 字段是稳定的程序化标识：
 
-| code | HTTP | 含义 |
-| --- | --- | --- |
-| `unauthorized` | 401 | 认证失败 |
-| `access_denied` | 403 | 无权限 |
-| `insufficient_user_quota` | 403 | 余额不足 |
-| `rate_limit_exceeded` | 429 | 限流 |
-| `model_not_found` | 503 | 模型不可用 |
-| `channel:response_time_exceeded` | 504 | 上游超时 |
+<table>
+  <thead><tr><th>code</th><th>HTTP</th><th>含义</th></tr></thead>
+  <tbody>
+    <tr><td><code>unauthorized</code></td><td>401</td><td>认证失败</td></tr>
+    <tr><td><code>access_denied</code></td><td>403</td><td>无权限</td></tr>
+    <tr><td><code>insufficient_user_quota</code></td><td>403</td><td>余额不足</td></tr>
+    <tr><td><code>rate_limit_exceeded</code></td><td>429</td><td>限流</td></tr>
+    <tr><td><code>model_not_found</code></td><td>503</td><td>模型不可用</td></tr>
+    <tr><td><code>channel:response_time_exceeded</code></td><td>504</td><td>上游超时</td></tr>
+  </tbody>
+</table>
