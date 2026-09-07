@@ -1,0 +1,162 @@
+# API 接入快速开始
+
+本指南说明如何使用平台令牌调用 OpenAI 兼容接口、Anthropic Messages 接口和 Gemini 原生接口。
+
+## 1. 准备工作
+
+1. 在控制台创建 API Key，并只在创建时安全保存明文。
+2. 确认 Key 已启用、未过期，且具有目标模型的权限。
+3. 将平台地址和 Key 写入环境变量。
+
+
+```bash
+export LINGHU_BASE_URL='https://<your-domain>'
+export LINGHU_API_KEY='<your-api-key>'
+```
+
+不要把 Key 写入源码或截图。服务端日志与控制台只会显示脱敏后的 Key。
+
+## 2. 先确认可用模型
+
+```bash
+curl "$LINGHU_BASE_URL/v1/models" \
+  -H "Authorization: Bearer $LINGHU_API_KEY"
+```
+
+## 3. OpenAI 兼容接口
+
+### cURL
+
+```bash
+curl "$LINGHU_BASE_URL/v1/chat/completions" \
+  -H "Authorization: Bearer $LINGHU_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "<model-name>",
+    "messages": [{"role": "user", "content": "用一句话介绍你自己。"}]
+  }'
+```
+
+### Python（OpenAI SDK）
+
+```python
+from openai import OpenAI
+import os
+
+client = OpenAI(
+    base_url=f"{os.environ['LINGHU_BASE_URL']}/v1",
+    api_key=os.environ["LINGHU_API_KEY"],
+)
+response = client.chat.completions.create(
+    model="<model-name>",
+    messages=[{"role": "user", "content": "用一句话介绍你自己。"}],
+)
+print(response.choices[0].message.content)
+```
+
+### Node.js（OpenAI SDK）
+
+```javascript
+import OpenAI from 'openai'
+const client = new OpenAI({
+  baseURL: `${process.env.LINGHU_BASE_URL}/v1`,
+  apiKey: process.env.LINGHU_API_KEY,
+})
+const response = await client.chat.completions.create({
+  model: '<model-name>',
+  messages: [{ role: 'user', content: '用一句话介绍你自己。' }],
+})
+console.log(response.choices[0].message.content)
+```
+
+### 流式响应
+
+```bash
+curl -N "$LINGHU_BASE_URL/v1/chat/completions" \
+  -H "Authorization: Bearer $LINGHU_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "<model-name>", "stream": true, "messages": [{"role": "user", "content": "写一首短诗。"}]}'
+```
+
+## 4. Anthropic Messages 原生接口
+
+### cURL
+
+```bash
+curl "$LINGHU_BASE_URL/v1/messages" \
+  -H "x-api-key: $LINGHU_API_KEY" \
+  -H 'anthropic-version: 2023-06-01' \
+  -H 'content-type: application/json' \
+  -d '{
+    "model": "<model-name>",
+    "max_tokens": 512,
+    "messages": [{"role": "user", "content": "用一句话介绍你自己。"}]
+  }'
+```
+
+### Python
+
+```python
+import os, requests
+response = requests.post(
+    f"{os.environ['LINGHU_BASE_URL']}/v1/messages",
+    headers={"x-api-key": os.environ["LINGHU_API_KEY"], "anthropic-version": "2023-06-01"},
+    json={"model": "<model-name>", "max_tokens": 512, "messages": [{"role": "user", "content": "用一句话介绍你自己。"}]},
+)
+print(response.json()["content"][0]["text"])
+```
+
+### Node.js
+
+```javascript
+const response = await fetch(`${process.env.LINGHU_BASE_URL}/v1/messages`, {
+  method: 'POST',
+  headers: { 'x-api-key': process.env.LINGHU_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+  body: JSON.stringify({ model: '<model-name>', max_tokens: 512, messages: [{ role: 'user', content: '用一句话介绍你自己。' }] }),
+})
+console.log((await response.json()).content[0].text)
+```
+
+## 5. Gemini 原生接口
+
+### cURL
+
+```bash
+curl "$LINGHU_BASE_URL/v1beta/models/<model-name>:generateContent" \
+  -H "x-goog-api-key: $LINGHU_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"contents": [{"parts": [{"text": "用一句话介绍你自己。"}]}]}'
+```
+
+### Python
+
+```python
+import os, requests
+response = requests.post(
+    f"{os.environ['LINGHU_BASE_URL']}/v1beta/models/<model-name>:generateContent",
+    headers={"x-goog-api-key": os.environ["LINGHU_API_KEY"]},
+    json={"contents": [{"parts": [{"text": "用一句话介绍你自己。"}]}]},
+)
+print(response.json()["candidates"][0]["content"]["parts"][0]["text"])
+```
+
+## 6. 排障与安全检查
+
+| 状态码 | 原因 | 处理 |
+| --- | --- | --- |
+| 401/403 | Key 无效/过期/无权限 | 检查 Key 状态与模型权限 |
+| 429 | 配额/限流超限 | 检查日/月预算、RPM/TPM/并发设置 |
+| 5xx | 上游或平台错误 | 记录请求 ID 后联系支持 |
+
+## 7. 错误码
+
+所有网关错误响应均采用 OpenAI 兼容结构，`code` 字段是稳定的程序化标识：
+
+| code | HTTP | 含义 |
+| --- | --- | --- |
+| `unauthorized` | 401 | 认证失败 |
+| `access_denied` | 403 | 无权限 |
+| `insufficient_user_quota` | 403 | 余额不足 |
+| `rate_limit_exceeded` | 429 | 限流 |
+| `model_not_found` | 503 | 模型不可用 |
+| `channel:response_time_exceeded` | 504 | 上游超时 |

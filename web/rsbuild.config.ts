@@ -2,6 +2,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { defineConfig, loadEnv } from '@rsbuild/core'
+import { pluginMdx } from '@rsbuild/plugin-mdx'
 import { pluginReact } from '@rsbuild/plugin-react'
 import { pluginTailwindcss } from '@rsbuild/plugin-tailwindcss'
 import { tanstackRouter } from '@tanstack/router-plugin/rspack'
@@ -24,7 +25,7 @@ export default defineConfig(({ envMode }) => {
   ) as Record<string, { target: string; changeOrigin: boolean }>
 
   return {
-    plugins: [pluginReact(), pluginTailwindcss({ optimize: false })],
+    plugins: [pluginReact(), pluginMdx(), pluginTailwindcss({ optimize: false })],
     // Rsbuild 2: replaces deprecated `performance.chunkSplit` (RSPack 2 aligned)
     splitChunks: {
       preset: 'default',
