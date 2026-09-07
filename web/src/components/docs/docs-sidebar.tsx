@@ -1,4 +1,4 @@
-import { BookOpen, Zap, Key, Coins, Wallet, FileText, ListTodo, BarChart3, CreditCard, MessageSquare, Settings, HelpCircle, Download } from 'lucide-react'
+import { BookOpen, Zap, Key, Coins, Wallet, FileText, ListTodo, BarChart3, CreditCard, MessageSquare, Settings, HelpCircle, Download, ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
@@ -8,6 +8,7 @@ interface NavItem {
   href?: string
   icon?: React.ElementType
   children?: NavItem[]
+  external?: boolean
 }
 
 export function DocsSidebar() {
@@ -32,6 +33,12 @@ export function DocsSidebar() {
       ],
     },
     { title: t('API Reference'), href: '/docs/api-reference', icon: BookOpen },
+    {
+      title: t('API Quick Integration'),
+      href: 'https://app.apifox.com/main/teams/4381043?tab=project',
+      icon: ExternalLink,
+      external: true,
+    },
     { title: t('FAQ'), href: '/docs/faq', icon: HelpCircle },
   ]
 
@@ -40,6 +47,17 @@ export function DocsSidebar() {
       {navItems.map((item) => (
         <div key={item.title}>
           {item.href ? (
+            item.external ? (
+              <a
+                href={item.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                {item.icon && <item.icon className="h-4 w-4 shrink-0" />}
+                <span>{item.title}</span>
+              </a>
+            ) : (
             <Link
               to={item.href}
               className={cn(
@@ -52,6 +70,7 @@ export function DocsSidebar() {
               {item.icon && <item.icon className="h-4 w-4 shrink-0" />}
               <span>{item.title}</span>
             </Link>
+            )
           ) : (
             <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               {item.title}
