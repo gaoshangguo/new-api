@@ -84,6 +84,7 @@
   },
   "devDependencies": {
     "@rsbuild/core": "^2.1.4",
+    "@rsbuild/plugin-mdx": "^1.1.3",
     "@rsbuild/plugin-react": "^2.1.0",
     "@rsbuild/plugin-tailwindcss": "^2.0.3",
     "@tanstack/react-query-devtools": "^5.101.2",
