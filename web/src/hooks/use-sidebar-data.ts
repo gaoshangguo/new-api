@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   Activity,
+  BookOpen,
   BriefcaseBusiness,
   Box,
   CreditCard,
@@ -96,6 +97,11 @@ export function useSidebarData(): SidebarData {
             title: t('API Keys'),
             url: '/keys',
             icon: Key,
+          },
+          {
+            title: t('Documentation'),
+            url: '/docs/quick-start',
+            icon: BookOpen,
           },
           {
             title: t('Usage Logs'),
