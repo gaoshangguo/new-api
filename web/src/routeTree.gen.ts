@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as authRouteRouteImport } from './routes/(auth)/route'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as DocsRouteRouteImport } from './routes/docs/route'
 import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
 import { Route as UserAgreementRouteImport } from './routes/user-agreement'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
@@ -27,9 +28,12 @@ import { Route as errors404RouteImport } from './routes/(errors)/404'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
-import { Route as AuthenticatedDocsRouteRouteImport } from './routes/_authenticated/docs/route'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
+import { Route as DocsIndexRouteImport } from './routes/docs/index'
+import { Route as DocsFaqRouteImport } from './routes/docs/faq'
+import { Route as DocsInstallationRouteImport } from './routes/docs/installation'
+import { Route as DocsQuickStartRouteImport } from './routes/docs/quick-start'
 import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as PricingIndexRouteImport } from './routes/pricing/index'
 import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
@@ -42,11 +46,6 @@ import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authen
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
-import { Route as AuthenticatedDocsIndexRouteImport } from './routes/_authenticated/docs/index'
-import { Route as AuthenticatedDocsApiReferenceRouteImport } from './routes/_authenticated/docs/api-reference'
-import { Route as AuthenticatedDocsFaqRouteImport } from './routes/_authenticated/docs/faq'
-import { Route as AuthenticatedDocsInstallationRouteImport } from './routes/_authenticated/docs/installation'
-import { Route as AuthenticatedDocsQuickStartRouteImport } from './routes/_authenticated/docs/quick-start'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedFinanceManualCreditsRouteImport } from './routes/_authenticated/finance/manual-credits'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
@@ -63,16 +62,18 @@ import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_aut
 import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
 import { Route as AuthenticatedWalletFinancialDetailsRouteImport } from './routes/_authenticated/wallet/financial-details'
+import { Route as DocsApiReferenceIndexRouteImport } from './routes/docs/api-reference/index'
+import { Route as DocsApiReferenceEndpointIdRouteImport } from './routes/docs/api-reference/$endpointId'
+import { Route as DocsGuideApiKeysRouteImport } from './routes/docs/guide/api-keys'
+import { Route as DocsGuideChatAppsRouteImport } from './routes/docs/guide/chat-apps'
+import { Route as DocsGuidePersonalSettingsRouteImport } from './routes/docs/guide/personal-settings'
+import { Route as DocsGuidePricingRouteImport } from './routes/docs/guide/pricing'
+import { Route as DocsGuideSubscriptionRouteImport } from './routes/docs/guide/subscription'
+import { Route as DocsGuideTasksRouteImport } from './routes/docs/guide/tasks'
+import { Route as DocsGuideTokensRouteImport } from './routes/docs/guide/tokens'
+import { Route as DocsGuideTopupRouteImport } from './routes/docs/guide/topup'
+import { Route as DocsGuideUsageLogsRouteImport } from './routes/docs/guide/usage-logs'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
-import { Route as AuthenticatedDocsGuideApiKeysRouteImport } from './routes/_authenticated/docs/guide/api-keys'
-import { Route as AuthenticatedDocsGuideChatAppsRouteImport } from './routes/_authenticated/docs/guide/chat-apps'
-import { Route as AuthenticatedDocsGuidePersonalSettingsRouteImport } from './routes/_authenticated/docs/guide/personal-settings'
-import { Route as AuthenticatedDocsGuidePricingRouteImport } from './routes/_authenticated/docs/guide/pricing'
-import { Route as AuthenticatedDocsGuideSubscriptionRouteImport } from './routes/_authenticated/docs/guide/subscription'
-import { Route as AuthenticatedDocsGuideTasksRouteImport } from './routes/_authenticated/docs/guide/tasks'
-import { Route as AuthenticatedDocsGuideTokensRouteImport } from './routes/_authenticated/docs/guide/tokens'
-import { Route as AuthenticatedDocsGuideTopupRouteImport } from './routes/_authenticated/docs/guide/topup'
-import { Route as AuthenticatedDocsGuideUsageLogsRouteImport } from './routes/_authenticated/docs/guide/usage-logs'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
 import { Route as AuthenticatedSystemSettingsAuthSectionRouteImport } from './routes/_authenticated/system-settings/auth/$section'
 import { Route as AuthenticatedSystemSettingsBillingIndexRouteImport } from './routes/_authenticated/system-settings/billing/index'
@@ -99,6 +100,11 @@ const authRouteRoute = authRouteRouteImport.update({
 } as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocsRouteRoute = DocsRouteRouteImport.update({
+  id: '/docs',
+  path: '/docs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyPolicyRoute = PrivacyPolicyRouteImport.update({
@@ -176,11 +182,6 @@ const AuthenticatedChat2linkRoute = AuthenticatedChat2linkRouteImport.update({
   path: '/chat2link',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedDocsRouteRoute = AuthenticatedDocsRouteRouteImport.update({
-  id: '/docs',
-  path: '/docs',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedSystemSettingsRouteRoute =
   AuthenticatedSystemSettingsRouteRouteImport.update({
     id: '/system-settings',
@@ -191,6 +192,26 @@ const AboutIndexRoute = AboutIndexRouteImport.update({
   id: '/about/',
   path: '/about/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const DocsIndexRoute = DocsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsFaqRoute = DocsFaqRouteImport.update({
+  id: '/faq',
+  path: '/faq',
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsInstallationRoute = DocsInstallationRouteImport.update({
+  id: '/installation',
+  path: '/installation',
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsQuickStartRoute = DocsQuickStartRouteImport.update({
+  id: '/quick-start',
+  path: '/quick-start',
+  getParentRoute: () => DocsRouteRoute,
 } as any)
 const OauthProviderRoute = OauthProviderRouteImport.update({
   id: '/oauth/$provider',
@@ -257,34 +278,6 @@ const AuthenticatedDashboardSectionRoute =
     id: '/dashboard/$section',
     path: '/dashboard/$section',
     getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedDocsIndexRoute = AuthenticatedDocsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AuthenticatedDocsRouteRoute,
-} as any)
-const AuthenticatedDocsApiReferenceRoute =
-  AuthenticatedDocsApiReferenceRouteImport.update({
-    id: '/api-reference',
-    path: '/api-reference',
-    getParentRoute: () => AuthenticatedDocsRouteRoute,
-  } as any)
-const AuthenticatedDocsFaqRoute = AuthenticatedDocsFaqRouteImport.update({
-  id: '/faq',
-  path: '/faq',
-  getParentRoute: () => AuthenticatedDocsRouteRoute,
-} as any)
-const AuthenticatedDocsInstallationRoute =
-  AuthenticatedDocsInstallationRouteImport.update({
-    id: '/installation',
-    path: '/installation',
-    getParentRoute: () => AuthenticatedDocsRouteRoute,
-  } as any)
-const AuthenticatedDocsQuickStartRoute =
-  AuthenticatedDocsQuickStartRouteImport.update({
-    id: '/quick-start',
-    path: '/quick-start',
-    getParentRoute: () => AuthenticatedDocsRouteRoute,
   } as any)
 const AuthenticatedErrorsErrorRoute =
   AuthenticatedErrorsErrorRouteImport.update({
@@ -380,65 +373,68 @@ const AuthenticatedWalletFinancialDetailsRoute =
     path: '/wallet/financial-details',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const DocsApiReferenceIndexRoute = DocsApiReferenceIndexRouteImport.update({
+  id: '/api-reference/',
+  path: '/api-reference/',
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsApiReferenceEndpointIdRoute =
+  DocsApiReferenceEndpointIdRouteImport.update({
+    id: '/api-reference/$endpointId',
+    path: '/api-reference/$endpointId',
+    getParentRoute: () => DocsRouteRoute,
+  } as any)
+const DocsGuideApiKeysRoute = DocsGuideApiKeysRouteImport.update({
+  id: '/guide/api-keys',
+  path: '/guide/api-keys',
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsGuideChatAppsRoute = DocsGuideChatAppsRouteImport.update({
+  id: '/guide/chat-apps',
+  path: '/guide/chat-apps',
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsGuidePersonalSettingsRoute =
+  DocsGuidePersonalSettingsRouteImport.update({
+    id: '/guide/personal-settings',
+    path: '/guide/personal-settings',
+    getParentRoute: () => DocsRouteRoute,
+  } as any)
+const DocsGuidePricingRoute = DocsGuidePricingRouteImport.update({
+  id: '/guide/pricing',
+  path: '/guide/pricing',
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsGuideSubscriptionRoute = DocsGuideSubscriptionRouteImport.update({
+  id: '/guide/subscription',
+  path: '/guide/subscription',
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsGuideTasksRoute = DocsGuideTasksRouteImport.update({
+  id: '/guide/tasks',
+  path: '/guide/tasks',
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsGuideTokensRoute = DocsGuideTokensRouteImport.update({
+  id: '/guide/tokens',
+  path: '/guide/tokens',
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsGuideTopupRoute = DocsGuideTopupRouteImport.update({
+  id: '/guide/topup',
+  path: '/guide/topup',
+  getParentRoute: () => DocsRouteRoute,
+} as any)
+const DocsGuideUsageLogsRoute = DocsGuideUsageLogsRouteImport.update({
+  id: '/guide/usage-logs',
+  path: '/guide/usage-logs',
+  getParentRoute: () => DocsRouteRoute,
+} as any)
 const PricingModelIdIndexRoute = PricingModelIdIndexRouteImport.update({
   id: '/pricing/$modelId/',
   path: '/pricing/$modelId/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedDocsGuideApiKeysRoute =
-  AuthenticatedDocsGuideApiKeysRouteImport.update({
-    id: '/guide/api-keys',
-    path: '/guide/api-keys',
-    getParentRoute: () => AuthenticatedDocsRouteRoute,
-  } as any)
-const AuthenticatedDocsGuideChatAppsRoute =
-  AuthenticatedDocsGuideChatAppsRouteImport.update({
-    id: '/guide/chat-apps',
-    path: '/guide/chat-apps',
-    getParentRoute: () => AuthenticatedDocsRouteRoute,
-  } as any)
-const AuthenticatedDocsGuidePersonalSettingsRoute =
-  AuthenticatedDocsGuidePersonalSettingsRouteImport.update({
-    id: '/guide/personal-settings',
-    path: '/guide/personal-settings',
-    getParentRoute: () => AuthenticatedDocsRouteRoute,
-  } as any)
-const AuthenticatedDocsGuidePricingRoute =
-  AuthenticatedDocsGuidePricingRouteImport.update({
-    id: '/guide/pricing',
-    path: '/guide/pricing',
-    getParentRoute: () => AuthenticatedDocsRouteRoute,
-  } as any)
-const AuthenticatedDocsGuideSubscriptionRoute =
-  AuthenticatedDocsGuideSubscriptionRouteImport.update({
-    id: '/guide/subscription',
-    path: '/guide/subscription',
-    getParentRoute: () => AuthenticatedDocsRouteRoute,
-  } as any)
-const AuthenticatedDocsGuideTasksRoute =
-  AuthenticatedDocsGuideTasksRouteImport.update({
-    id: '/guide/tasks',
-    path: '/guide/tasks',
-    getParentRoute: () => AuthenticatedDocsRouteRoute,
-  } as any)
-const AuthenticatedDocsGuideTokensRoute =
-  AuthenticatedDocsGuideTokensRouteImport.update({
-    id: '/guide/tokens',
-    path: '/guide/tokens',
-    getParentRoute: () => AuthenticatedDocsRouteRoute,
-  } as any)
-const AuthenticatedDocsGuideTopupRoute =
-  AuthenticatedDocsGuideTopupRouteImport.update({
-    id: '/guide/topup',
-    path: '/guide/topup',
-    getParentRoute: () => AuthenticatedDocsRouteRoute,
-  } as any)
-const AuthenticatedDocsGuideUsageLogsRoute =
-  AuthenticatedDocsGuideUsageLogsRouteImport.update({
-    id: '/guide/usage-logs',
-    path: '/guide/usage-logs',
-    getParentRoute: () => AuthenticatedDocsRouteRoute,
-  } as any)
 const AuthenticatedSystemSettingsAuthIndexRoute =
   AuthenticatedSystemSettingsAuthIndexRouteImport.update({
     id: '/auth/',
@@ -526,9 +522,9 @@ const AuthenticatedSystemSettingsSiteSectionRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/docs': typeof DocsRouteRouteWithChildren
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/user-agreement': typeof UserAgreementRoute
-  '/docs': typeof AuthenticatedDocsRouteRouteWithChildren
   '/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/forgot-password': typeof authForgotPasswordRoute
   '/oauth': typeof authOauthRoute
@@ -543,8 +539,12 @@ export interface FileRoutesByFullPath {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/docs/faq': typeof DocsFaqRoute
+  '/docs/installation': typeof DocsInstallationRoute
+  '/docs/quick-start': typeof DocsQuickStartRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/about/': typeof AboutIndexRoute
+  '/docs/': typeof DocsIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
@@ -553,19 +553,24 @@ export interface FileRoutesByFullPath {
   '/business/sales-accounts': typeof AuthenticatedBusinessSalesAccountsRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
-  '/docs/api-reference': typeof AuthenticatedDocsApiReferenceRoute
-  '/docs/faq': typeof AuthenticatedDocsFaqRoute
-  '/docs/installation': typeof AuthenticatedDocsInstallationRoute
-  '/docs/quick-start': typeof AuthenticatedDocsQuickStartRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/finance/manual-credits': typeof AuthenticatedFinanceManualCreditsRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/wallet/financial-details': typeof AuthenticatedWalletFinancialDetailsRoute
+  '/docs/api-reference/$endpointId': typeof DocsApiReferenceEndpointIdRoute
+  '/docs/guide/api-keys': typeof DocsGuideApiKeysRoute
+  '/docs/guide/chat-apps': typeof DocsGuideChatAppsRoute
+  '/docs/guide/personal-settings': typeof DocsGuidePersonalSettingsRoute
+  '/docs/guide/pricing': typeof DocsGuidePricingRoute
+  '/docs/guide/subscription': typeof DocsGuideSubscriptionRoute
+  '/docs/guide/tasks': typeof DocsGuideTasksRoute
+  '/docs/guide/tokens': typeof DocsGuideTokensRoute
+  '/docs/guide/topup': typeof DocsGuideTopupRoute
+  '/docs/guide/usage-logs': typeof DocsGuideUsageLogsRoute
   '/business/': typeof AuthenticatedBusinessIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
-  '/docs/': typeof AuthenticatedDocsIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
@@ -577,16 +582,8 @@ export interface FileRoutesByFullPath {
   '/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
   '/wallet/': typeof AuthenticatedWalletIndexRoute
+  '/docs/api-reference/': typeof DocsApiReferenceIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
-  '/docs/guide/api-keys': typeof AuthenticatedDocsGuideApiKeysRoute
-  '/docs/guide/chat-apps': typeof AuthenticatedDocsGuideChatAppsRoute
-  '/docs/guide/personal-settings': typeof AuthenticatedDocsGuidePersonalSettingsRoute
-  '/docs/guide/pricing': typeof AuthenticatedDocsGuidePricingRoute
-  '/docs/guide/subscription': typeof AuthenticatedDocsGuideSubscriptionRoute
-  '/docs/guide/tasks': typeof AuthenticatedDocsGuideTasksRoute
-  '/docs/guide/tokens': typeof AuthenticatedDocsGuideTokensRoute
-  '/docs/guide/topup': typeof AuthenticatedDocsGuideTopupRoute
-  '/docs/guide/usage-logs': typeof AuthenticatedDocsGuideUsageLogsRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -619,8 +616,12 @@ export interface FileRoutesByTo {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/docs/faq': typeof DocsFaqRoute
+  '/docs/installation': typeof DocsInstallationRoute
+  '/docs/quick-start': typeof DocsQuickStartRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/about': typeof AboutIndexRoute
+  '/docs': typeof DocsIndexRoute
   '/pricing': typeof PricingIndexRoute
   '/rankings': typeof RankingsIndexRoute
   '/setup': typeof SetupIndexRoute
@@ -629,19 +630,24 @@ export interface FileRoutesByTo {
   '/business/sales-accounts': typeof AuthenticatedBusinessSalesAccountsRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
-  '/docs/api-reference': typeof AuthenticatedDocsApiReferenceRoute
-  '/docs/faq': typeof AuthenticatedDocsFaqRoute
-  '/docs/installation': typeof AuthenticatedDocsInstallationRoute
-  '/docs/quick-start': typeof AuthenticatedDocsQuickStartRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/finance/manual-credits': typeof AuthenticatedFinanceManualCreditsRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/wallet/financial-details': typeof AuthenticatedWalletFinancialDetailsRoute
+  '/docs/api-reference/$endpointId': typeof DocsApiReferenceEndpointIdRoute
+  '/docs/guide/api-keys': typeof DocsGuideApiKeysRoute
+  '/docs/guide/chat-apps': typeof DocsGuideChatAppsRoute
+  '/docs/guide/personal-settings': typeof DocsGuidePersonalSettingsRoute
+  '/docs/guide/pricing': typeof DocsGuidePricingRoute
+  '/docs/guide/subscription': typeof DocsGuideSubscriptionRoute
+  '/docs/guide/tasks': typeof DocsGuideTasksRoute
+  '/docs/guide/tokens': typeof DocsGuideTokensRoute
+  '/docs/guide/topup': typeof DocsGuideTopupRoute
+  '/docs/guide/usage-logs': typeof DocsGuideUsageLogsRoute
   '/business': typeof AuthenticatedBusinessIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
-  '/docs': typeof AuthenticatedDocsIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
@@ -653,16 +659,8 @@ export interface FileRoutesByTo {
   '/usage-logs': typeof AuthenticatedUsageLogsIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
   '/wallet': typeof AuthenticatedWalletIndexRoute
+  '/docs/api-reference': typeof DocsApiReferenceIndexRoute
   '/pricing/$modelId': typeof PricingModelIdIndexRoute
-  '/docs/guide/api-keys': typeof AuthenticatedDocsGuideApiKeysRoute
-  '/docs/guide/chat-apps': typeof AuthenticatedDocsGuideChatAppsRoute
-  '/docs/guide/personal-settings': typeof AuthenticatedDocsGuidePersonalSettingsRoute
-  '/docs/guide/pricing': typeof AuthenticatedDocsGuidePricingRoute
-  '/docs/guide/subscription': typeof AuthenticatedDocsGuideSubscriptionRoute
-  '/docs/guide/tasks': typeof AuthenticatedDocsGuideTasksRoute
-  '/docs/guide/tokens': typeof AuthenticatedDocsGuideTokensRoute
-  '/docs/guide/topup': typeof AuthenticatedDocsGuideTopupRoute
-  '/docs/guide/usage-logs': typeof AuthenticatedDocsGuideUsageLogsRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -683,9 +681,9 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/(auth)': typeof authRouteRouteWithChildren
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/docs': typeof DocsRouteRouteWithChildren
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/user-agreement': typeof UserAgreementRoute
-  '/_authenticated/docs': typeof AuthenticatedDocsRouteRouteWithChildren
   '/_authenticated/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/(auth)/forgot-password': typeof authForgotPasswordRoute
   '/(auth)/oauth': typeof authOauthRoute
@@ -700,8 +698,12 @@ export interface FileRoutesById {
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
+  '/docs/faq': typeof DocsFaqRoute
+  '/docs/installation': typeof DocsInstallationRoute
+  '/docs/quick-start': typeof DocsQuickStartRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/about/': typeof AboutIndexRoute
+  '/docs/': typeof DocsIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
@@ -710,19 +712,24 @@ export interface FileRoutesById {
   '/_authenticated/business/sales-accounts': typeof AuthenticatedBusinessSalesAccountsRoute
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
-  '/_authenticated/docs/api-reference': typeof AuthenticatedDocsApiReferenceRoute
-  '/_authenticated/docs/faq': typeof AuthenticatedDocsFaqRoute
-  '/_authenticated/docs/installation': typeof AuthenticatedDocsInstallationRoute
-  '/_authenticated/docs/quick-start': typeof AuthenticatedDocsQuickStartRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/finance/manual-credits': typeof AuthenticatedFinanceManualCreditsRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/wallet/financial-details': typeof AuthenticatedWalletFinancialDetailsRoute
+  '/docs/api-reference/$endpointId': typeof DocsApiReferenceEndpointIdRoute
+  '/docs/guide/api-keys': typeof DocsGuideApiKeysRoute
+  '/docs/guide/chat-apps': typeof DocsGuideChatAppsRoute
+  '/docs/guide/personal-settings': typeof DocsGuidePersonalSettingsRoute
+  '/docs/guide/pricing': typeof DocsGuidePricingRoute
+  '/docs/guide/subscription': typeof DocsGuideSubscriptionRoute
+  '/docs/guide/tasks': typeof DocsGuideTasksRoute
+  '/docs/guide/tokens': typeof DocsGuideTokensRoute
+  '/docs/guide/topup': typeof DocsGuideTopupRoute
+  '/docs/guide/usage-logs': typeof DocsGuideUsageLogsRoute
   '/_authenticated/business/': typeof AuthenticatedBusinessIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
-  '/_authenticated/docs/': typeof AuthenticatedDocsIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
@@ -734,16 +741,8 @@ export interface FileRoutesById {
   '/_authenticated/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
   '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
+  '/docs/api-reference/': typeof DocsApiReferenceIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
-  '/_authenticated/docs/guide/api-keys': typeof AuthenticatedDocsGuideApiKeysRoute
-  '/_authenticated/docs/guide/chat-apps': typeof AuthenticatedDocsGuideChatAppsRoute
-  '/_authenticated/docs/guide/personal-settings': typeof AuthenticatedDocsGuidePersonalSettingsRoute
-  '/_authenticated/docs/guide/pricing': typeof AuthenticatedDocsGuidePricingRoute
-  '/_authenticated/docs/guide/subscription': typeof AuthenticatedDocsGuideSubscriptionRoute
-  '/_authenticated/docs/guide/tasks': typeof AuthenticatedDocsGuideTasksRoute
-  '/_authenticated/docs/guide/tokens': typeof AuthenticatedDocsGuideTokensRoute
-  '/_authenticated/docs/guide/topup': typeof AuthenticatedDocsGuideTopupRoute
-  '/_authenticated/docs/guide/usage-logs': typeof AuthenticatedDocsGuideUsageLogsRoute
   '/_authenticated/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/_authenticated/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/_authenticated/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -763,9 +762,9 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/docs'
     | '/privacy-policy'
     | '/user-agreement'
-    | '/docs'
     | '/system-settings'
     | '/forgot-password'
     | '/oauth'
@@ -780,8 +779,12 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/docs/faq'
+    | '/docs/installation'
+    | '/docs/quick-start'
     | '/oauth/$provider'
     | '/about/'
+    | '/docs/'
     | '/pricing/'
     | '/rankings/'
     | '/setup/'
@@ -790,19 +793,24 @@ export interface FileRouteTypes {
     | '/business/sales-accounts'
     | '/chat/$chatId'
     | '/dashboard/$section'
-    | '/docs/api-reference'
-    | '/docs/faq'
-    | '/docs/installation'
-    | '/docs/quick-start'
     | '/errors/$error'
     | '/finance/manual-credits'
     | '/models/$section'
     | '/usage-logs/$section'
     | '/wallet/financial-details'
+    | '/docs/api-reference/$endpointId'
+    | '/docs/guide/api-keys'
+    | '/docs/guide/chat-apps'
+    | '/docs/guide/personal-settings'
+    | '/docs/guide/pricing'
+    | '/docs/guide/subscription'
+    | '/docs/guide/tasks'
+    | '/docs/guide/tokens'
+    | '/docs/guide/topup'
+    | '/docs/guide/usage-logs'
     | '/business/'
     | '/channels/'
     | '/dashboard/'
-    | '/docs/'
     | '/keys/'
     | '/models/'
     | '/playground/'
@@ -814,16 +822,8 @@ export interface FileRouteTypes {
     | '/usage-logs/'
     | '/users/'
     | '/wallet/'
+    | '/docs/api-reference/'
     | '/pricing/$modelId/'
-    | '/docs/guide/api-keys'
-    | '/docs/guide/chat-apps'
-    | '/docs/guide/personal-settings'
-    | '/docs/guide/pricing'
-    | '/docs/guide/subscription'
-    | '/docs/guide/tasks'
-    | '/docs/guide/tokens'
-    | '/docs/guide/topup'
-    | '/docs/guide/usage-logs'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
     | '/system-settings/content/$section'
@@ -856,8 +856,12 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/docs/faq'
+    | '/docs/installation'
+    | '/docs/quick-start'
     | '/oauth/$provider'
     | '/about'
+    | '/docs'
     | '/pricing'
     | '/rankings'
     | '/setup'
@@ -866,19 +870,24 @@ export interface FileRouteTypes {
     | '/business/sales-accounts'
     | '/chat/$chatId'
     | '/dashboard/$section'
-    | '/docs/api-reference'
-    | '/docs/faq'
-    | '/docs/installation'
-    | '/docs/quick-start'
     | '/errors/$error'
     | '/finance/manual-credits'
     | '/models/$section'
     | '/usage-logs/$section'
     | '/wallet/financial-details'
+    | '/docs/api-reference/$endpointId'
+    | '/docs/guide/api-keys'
+    | '/docs/guide/chat-apps'
+    | '/docs/guide/personal-settings'
+    | '/docs/guide/pricing'
+    | '/docs/guide/subscription'
+    | '/docs/guide/tasks'
+    | '/docs/guide/tokens'
+    | '/docs/guide/topup'
+    | '/docs/guide/usage-logs'
     | '/business'
     | '/channels'
     | '/dashboard'
-    | '/docs'
     | '/keys'
     | '/models'
     | '/playground'
@@ -890,16 +899,8 @@ export interface FileRouteTypes {
     | '/usage-logs'
     | '/users'
     | '/wallet'
+    | '/docs/api-reference'
     | '/pricing/$modelId'
-    | '/docs/guide/api-keys'
-    | '/docs/guide/chat-apps'
-    | '/docs/guide/personal-settings'
-    | '/docs/guide/pricing'
-    | '/docs/guide/subscription'
-    | '/docs/guide/tasks'
-    | '/docs/guide/tokens'
-    | '/docs/guide/topup'
-    | '/docs/guide/usage-logs'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
     | '/system-settings/content/$section'
@@ -919,9 +920,9 @@ export interface FileRouteTypes {
     | '/'
     | '/(auth)'
     | '/_authenticated'
+    | '/docs'
     | '/privacy-policy'
     | '/user-agreement'
-    | '/_authenticated/docs'
     | '/_authenticated/system-settings'
     | '/(auth)/forgot-password'
     | '/(auth)/oauth'
@@ -936,8 +937,12 @@ export interface FileRouteTypes {
     | '/(errors)/500'
     | '/(errors)/503'
     | '/_authenticated/chat2link'
+    | '/docs/faq'
+    | '/docs/installation'
+    | '/docs/quick-start'
     | '/oauth/$provider'
     | '/about/'
+    | '/docs/'
     | '/pricing/'
     | '/rankings/'
     | '/setup/'
@@ -946,19 +951,24 @@ export interface FileRouteTypes {
     | '/_authenticated/business/sales-accounts'
     | '/_authenticated/chat/$chatId'
     | '/_authenticated/dashboard/$section'
-    | '/_authenticated/docs/api-reference'
-    | '/_authenticated/docs/faq'
-    | '/_authenticated/docs/installation'
-    | '/_authenticated/docs/quick-start'
     | '/_authenticated/errors/$error'
     | '/_authenticated/finance/manual-credits'
     | '/_authenticated/models/$section'
     | '/_authenticated/usage-logs/$section'
     | '/_authenticated/wallet/financial-details'
+    | '/docs/api-reference/$endpointId'
+    | '/docs/guide/api-keys'
+    | '/docs/guide/chat-apps'
+    | '/docs/guide/personal-settings'
+    | '/docs/guide/pricing'
+    | '/docs/guide/subscription'
+    | '/docs/guide/tasks'
+    | '/docs/guide/tokens'
+    | '/docs/guide/topup'
+    | '/docs/guide/usage-logs'
     | '/_authenticated/business/'
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
-    | '/_authenticated/docs/'
     | '/_authenticated/keys/'
     | '/_authenticated/models/'
     | '/_authenticated/playground/'
@@ -970,16 +980,8 @@ export interface FileRouteTypes {
     | '/_authenticated/usage-logs/'
     | '/_authenticated/users/'
     | '/_authenticated/wallet/'
+    | '/docs/api-reference/'
     | '/pricing/$modelId/'
-    | '/_authenticated/docs/guide/api-keys'
-    | '/_authenticated/docs/guide/chat-apps'
-    | '/_authenticated/docs/guide/personal-settings'
-    | '/_authenticated/docs/guide/pricing'
-    | '/_authenticated/docs/guide/subscription'
-    | '/_authenticated/docs/guide/tasks'
-    | '/_authenticated/docs/guide/tokens'
-    | '/_authenticated/docs/guide/topup'
-    | '/_authenticated/docs/guide/usage-logs'
     | '/_authenticated/system-settings/auth/$section'
     | '/_authenticated/system-settings/billing/$section'
     | '/_authenticated/system-settings/content/$section'
@@ -1000,6 +1002,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   authRouteRoute: typeof authRouteRouteWithChildren
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  DocsRouteRoute: typeof DocsRouteRouteWithChildren
   PrivacyPolicyRoute: typeof PrivacyPolicyRoute
   UserAgreementRoute: typeof UserAgreementRoute
   errors401Route: typeof errors401Route
@@ -1036,6 +1039,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs': {
+      id: '/docs'
+      path: '/docs'
+      fullPath: '/docs'
+      preLoaderRoute: typeof DocsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy-policy': {
@@ -1143,13 +1153,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedChat2linkRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/docs': {
-      id: '/_authenticated/docs'
-      path: '/docs'
-      fullPath: '/docs'
-      preLoaderRoute: typeof AuthenticatedDocsRouteRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/system-settings': {
       id: '/_authenticated/system-settings'
       path: '/system-settings'
@@ -1163,6 +1166,34 @@ declare module '@tanstack/react-router' {
       fullPath: '/about/'
       preLoaderRoute: typeof AboutIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/docs/': {
+      id: '/docs/'
+      path: '/'
+      fullPath: '/docs/'
+      preLoaderRoute: typeof DocsIndexRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/faq': {
+      id: '/docs/faq'
+      path: '/faq'
+      fullPath: '/docs/faq'
+      preLoaderRoute: typeof DocsFaqRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/installation': {
+      id: '/docs/installation'
+      path: '/installation'
+      fullPath: '/docs/installation'
+      preLoaderRoute: typeof DocsInstallationRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/quick-start': {
+      id: '/docs/quick-start'
+      path: '/quick-start'
+      fullPath: '/docs/quick-start'
+      preLoaderRoute: typeof DocsQuickStartRouteImport
+      parentRoute: typeof DocsRouteRoute
     }
     '/oauth/$provider': {
       id: '/oauth/$provider'
@@ -1247,41 +1278,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/dashboard/$section'
       preLoaderRoute: typeof AuthenticatedDashboardSectionRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/docs/': {
-      id: '/_authenticated/docs/'
-      path: '/'
-      fullPath: '/docs/'
-      preLoaderRoute: typeof AuthenticatedDocsIndexRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
-    }
-    '/_authenticated/docs/api-reference': {
-      id: '/_authenticated/docs/api-reference'
-      path: '/api-reference'
-      fullPath: '/docs/api-reference'
-      preLoaderRoute: typeof AuthenticatedDocsApiReferenceRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
-    }
-    '/_authenticated/docs/faq': {
-      id: '/_authenticated/docs/faq'
-      path: '/faq'
-      fullPath: '/docs/faq'
-      preLoaderRoute: typeof AuthenticatedDocsFaqRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
-    }
-    '/_authenticated/docs/installation': {
-      id: '/_authenticated/docs/installation'
-      path: '/installation'
-      fullPath: '/docs/installation'
-      preLoaderRoute: typeof AuthenticatedDocsInstallationRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
-    }
-    '/_authenticated/docs/quick-start': {
-      id: '/_authenticated/docs/quick-start'
-      path: '/quick-start'
-      fullPath: '/docs/quick-start'
-      preLoaderRoute: typeof AuthenticatedDocsQuickStartRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
     }
     '/_authenticated/errors/$error': {
       id: '/_authenticated/errors/$error'
@@ -1395,75 +1391,89 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedWalletFinancialDetailsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/docs/api-reference/': {
+      id: '/docs/api-reference/'
+      path: '/api-reference'
+      fullPath: '/docs/api-reference/'
+      preLoaderRoute: typeof DocsApiReferenceIndexRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/api-reference/$endpointId': {
+      id: '/docs/api-reference/$endpointId'
+      path: '/api-reference/$endpointId'
+      fullPath: '/docs/api-reference/$endpointId'
+      preLoaderRoute: typeof DocsApiReferenceEndpointIdRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/guide/api-keys': {
+      id: '/docs/guide/api-keys'
+      path: '/guide/api-keys'
+      fullPath: '/docs/guide/api-keys'
+      preLoaderRoute: typeof DocsGuideApiKeysRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/guide/chat-apps': {
+      id: '/docs/guide/chat-apps'
+      path: '/guide/chat-apps'
+      fullPath: '/docs/guide/chat-apps'
+      preLoaderRoute: typeof DocsGuideChatAppsRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/guide/personal-settings': {
+      id: '/docs/guide/personal-settings'
+      path: '/guide/personal-settings'
+      fullPath: '/docs/guide/personal-settings'
+      preLoaderRoute: typeof DocsGuidePersonalSettingsRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/guide/pricing': {
+      id: '/docs/guide/pricing'
+      path: '/guide/pricing'
+      fullPath: '/docs/guide/pricing'
+      preLoaderRoute: typeof DocsGuidePricingRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/guide/subscription': {
+      id: '/docs/guide/subscription'
+      path: '/guide/subscription'
+      fullPath: '/docs/guide/subscription'
+      preLoaderRoute: typeof DocsGuideSubscriptionRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/guide/tasks': {
+      id: '/docs/guide/tasks'
+      path: '/guide/tasks'
+      fullPath: '/docs/guide/tasks'
+      preLoaderRoute: typeof DocsGuideTasksRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/guide/tokens': {
+      id: '/docs/guide/tokens'
+      path: '/guide/tokens'
+      fullPath: '/docs/guide/tokens'
+      preLoaderRoute: typeof DocsGuideTokensRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/guide/topup': {
+      id: '/docs/guide/topup'
+      path: '/guide/topup'
+      fullPath: '/docs/guide/topup'
+      preLoaderRoute: typeof DocsGuideTopupRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
+    '/docs/guide/usage-logs': {
+      id: '/docs/guide/usage-logs'
+      path: '/guide/usage-logs'
+      fullPath: '/docs/guide/usage-logs'
+      preLoaderRoute: typeof DocsGuideUsageLogsRouteImport
+      parentRoute: typeof DocsRouteRoute
+    }
     '/pricing/$modelId/': {
       id: '/pricing/$modelId/'
       path: '/pricing/$modelId'
       fullPath: '/pricing/$modelId/'
       preLoaderRoute: typeof PricingModelIdIndexRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/docs/guide/api-keys': {
-      id: '/_authenticated/docs/guide/api-keys'
-      path: '/guide/api-keys'
-      fullPath: '/docs/guide/api-keys'
-      preLoaderRoute: typeof AuthenticatedDocsGuideApiKeysRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
-    }
-    '/_authenticated/docs/guide/chat-apps': {
-      id: '/_authenticated/docs/guide/chat-apps'
-      path: '/guide/chat-apps'
-      fullPath: '/docs/guide/chat-apps'
-      preLoaderRoute: typeof AuthenticatedDocsGuideChatAppsRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
-    }
-    '/_authenticated/docs/guide/personal-settings': {
-      id: '/_authenticated/docs/guide/personal-settings'
-      path: '/guide/personal-settings'
-      fullPath: '/docs/guide/personal-settings'
-      preLoaderRoute: typeof AuthenticatedDocsGuidePersonalSettingsRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
-    }
-    '/_authenticated/docs/guide/pricing': {
-      id: '/_authenticated/docs/guide/pricing'
-      path: '/guide/pricing'
-      fullPath: '/docs/guide/pricing'
-      preLoaderRoute: typeof AuthenticatedDocsGuidePricingRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
-    }
-    '/_authenticated/docs/guide/subscription': {
-      id: '/_authenticated/docs/guide/subscription'
-      path: '/guide/subscription'
-      fullPath: '/docs/guide/subscription'
-      preLoaderRoute: typeof AuthenticatedDocsGuideSubscriptionRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
-    }
-    '/_authenticated/docs/guide/tasks': {
-      id: '/_authenticated/docs/guide/tasks'
-      path: '/guide/tasks'
-      fullPath: '/docs/guide/tasks'
-      preLoaderRoute: typeof AuthenticatedDocsGuideTasksRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
-    }
-    '/_authenticated/docs/guide/tokens': {
-      id: '/_authenticated/docs/guide/tokens'
-      path: '/guide/tokens'
-      fullPath: '/docs/guide/tokens'
-      preLoaderRoute: typeof AuthenticatedDocsGuideTokensRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
-    }
-    '/_authenticated/docs/guide/topup': {
-      id: '/_authenticated/docs/guide/topup'
-      path: '/guide/topup'
-      fullPath: '/docs/guide/topup'
-      preLoaderRoute: typeof AuthenticatedDocsGuideTopupRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
-    }
-    '/_authenticated/docs/guide/usage-logs': {
-      id: '/_authenticated/docs/guide/usage-logs'
-      path: '/guide/usage-logs'
-      fullPath: '/docs/guide/usage-logs'
-      preLoaderRoute: typeof AuthenticatedDocsGuideUsageLogsRouteImport
-      parentRoute: typeof AuthenticatedDocsRouteRoute
     }
     '/_authenticated/system-settings/auth/': {
       id: '/_authenticated/system-settings/auth/'
@@ -1592,48 +1602,6 @@ const authRouteRouteWithChildren = authRouteRoute._addFileChildren(
   authRouteRouteChildren,
 )
 
-interface AuthenticatedDocsRouteRouteChildren {
-  AuthenticatedDocsApiReferenceRoute: typeof AuthenticatedDocsApiReferenceRoute
-  AuthenticatedDocsFaqRoute: typeof AuthenticatedDocsFaqRoute
-  AuthenticatedDocsInstallationRoute: typeof AuthenticatedDocsInstallationRoute
-  AuthenticatedDocsQuickStartRoute: typeof AuthenticatedDocsQuickStartRoute
-  AuthenticatedDocsIndexRoute: typeof AuthenticatedDocsIndexRoute
-  AuthenticatedDocsGuideApiKeysRoute: typeof AuthenticatedDocsGuideApiKeysRoute
-  AuthenticatedDocsGuideChatAppsRoute: typeof AuthenticatedDocsGuideChatAppsRoute
-  AuthenticatedDocsGuidePersonalSettingsRoute: typeof AuthenticatedDocsGuidePersonalSettingsRoute
-  AuthenticatedDocsGuidePricingRoute: typeof AuthenticatedDocsGuidePricingRoute
-  AuthenticatedDocsGuideSubscriptionRoute: typeof AuthenticatedDocsGuideSubscriptionRoute
-  AuthenticatedDocsGuideTasksRoute: typeof AuthenticatedDocsGuideTasksRoute
-  AuthenticatedDocsGuideTokensRoute: typeof AuthenticatedDocsGuideTokensRoute
-  AuthenticatedDocsGuideTopupRoute: typeof AuthenticatedDocsGuideTopupRoute
-  AuthenticatedDocsGuideUsageLogsRoute: typeof AuthenticatedDocsGuideUsageLogsRoute
-}
-
-const AuthenticatedDocsRouteRouteChildren: AuthenticatedDocsRouteRouteChildren =
-  {
-    AuthenticatedDocsApiReferenceRoute: AuthenticatedDocsApiReferenceRoute,
-    AuthenticatedDocsFaqRoute: AuthenticatedDocsFaqRoute,
-    AuthenticatedDocsInstallationRoute: AuthenticatedDocsInstallationRoute,
-    AuthenticatedDocsQuickStartRoute: AuthenticatedDocsQuickStartRoute,
-    AuthenticatedDocsIndexRoute: AuthenticatedDocsIndexRoute,
-    AuthenticatedDocsGuideApiKeysRoute: AuthenticatedDocsGuideApiKeysRoute,
-    AuthenticatedDocsGuideChatAppsRoute: AuthenticatedDocsGuideChatAppsRoute,
-    AuthenticatedDocsGuidePersonalSettingsRoute:
-      AuthenticatedDocsGuidePersonalSettingsRoute,
-    AuthenticatedDocsGuidePricingRoute: AuthenticatedDocsGuidePricingRoute,
-    AuthenticatedDocsGuideSubscriptionRoute:
-      AuthenticatedDocsGuideSubscriptionRoute,
-    AuthenticatedDocsGuideTasksRoute: AuthenticatedDocsGuideTasksRoute,
-    AuthenticatedDocsGuideTokensRoute: AuthenticatedDocsGuideTokensRoute,
-    AuthenticatedDocsGuideTopupRoute: AuthenticatedDocsGuideTopupRoute,
-    AuthenticatedDocsGuideUsageLogsRoute: AuthenticatedDocsGuideUsageLogsRoute,
-  }
-
-const AuthenticatedDocsRouteRouteWithChildren =
-  AuthenticatedDocsRouteRoute._addFileChildren(
-    AuthenticatedDocsRouteRouteChildren,
-  )
-
 interface AuthenticatedSystemSettingsRouteRouteChildren {
   AuthenticatedSystemSettingsIndexRoute: typeof AuthenticatedSystemSettingsIndexRoute
   AuthenticatedSystemSettingsAuthSectionRoute: typeof AuthenticatedSystemSettingsAuthSectionRoute
@@ -1692,7 +1660,6 @@ const AuthenticatedSystemSettingsRouteRouteWithChildren =
   )
 
 interface AuthenticatedRouteRouteChildren {
-  AuthenticatedDocsRouteRoute: typeof AuthenticatedDocsRouteRouteWithChildren
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
   AuthenticatedBusinessCustomerAssignmentsRoute: typeof AuthenticatedBusinessCustomerAssignmentsRoute
@@ -1720,7 +1687,6 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
-  AuthenticatedDocsRouteRoute: AuthenticatedDocsRouteRouteWithChildren,
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
@@ -1756,10 +1722,51 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
+interface DocsRouteRouteChildren {
+  DocsFaqRoute: typeof DocsFaqRoute
+  DocsInstallationRoute: typeof DocsInstallationRoute
+  DocsQuickStartRoute: typeof DocsQuickStartRoute
+  DocsIndexRoute: typeof DocsIndexRoute
+  DocsApiReferenceEndpointIdRoute: typeof DocsApiReferenceEndpointIdRoute
+  DocsGuideApiKeysRoute: typeof DocsGuideApiKeysRoute
+  DocsGuideChatAppsRoute: typeof DocsGuideChatAppsRoute
+  DocsGuidePersonalSettingsRoute: typeof DocsGuidePersonalSettingsRoute
+  DocsGuidePricingRoute: typeof DocsGuidePricingRoute
+  DocsGuideSubscriptionRoute: typeof DocsGuideSubscriptionRoute
+  DocsGuideTasksRoute: typeof DocsGuideTasksRoute
+  DocsGuideTokensRoute: typeof DocsGuideTokensRoute
+  DocsGuideTopupRoute: typeof DocsGuideTopupRoute
+  DocsGuideUsageLogsRoute: typeof DocsGuideUsageLogsRoute
+  DocsApiReferenceIndexRoute: typeof DocsApiReferenceIndexRoute
+}
+
+const DocsRouteRouteChildren: DocsRouteRouteChildren = {
+  DocsFaqRoute: DocsFaqRoute,
+  DocsInstallationRoute: DocsInstallationRoute,
+  DocsQuickStartRoute: DocsQuickStartRoute,
+  DocsIndexRoute: DocsIndexRoute,
+  DocsApiReferenceEndpointIdRoute: DocsApiReferenceEndpointIdRoute,
+  DocsGuideApiKeysRoute: DocsGuideApiKeysRoute,
+  DocsGuideChatAppsRoute: DocsGuideChatAppsRoute,
+  DocsGuidePersonalSettingsRoute: DocsGuidePersonalSettingsRoute,
+  DocsGuidePricingRoute: DocsGuidePricingRoute,
+  DocsGuideSubscriptionRoute: DocsGuideSubscriptionRoute,
+  DocsGuideTasksRoute: DocsGuideTasksRoute,
+  DocsGuideTokensRoute: DocsGuideTokensRoute,
+  DocsGuideTopupRoute: DocsGuideTopupRoute,
+  DocsGuideUsageLogsRoute: DocsGuideUsageLogsRoute,
+  DocsApiReferenceIndexRoute: DocsApiReferenceIndexRoute,
+}
+
+const DocsRouteRouteWithChildren = DocsRouteRoute._addFileChildren(
+  DocsRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   authRouteRoute: authRouteRouteWithChildren,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  DocsRouteRoute: DocsRouteRouteWithChildren,
   PrivacyPolicyRoute: PrivacyPolicyRoute,
   UserAgreementRoute: UserAgreementRoute,
   errors401Route: errors401Route,
