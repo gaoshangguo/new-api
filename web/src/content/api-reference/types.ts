@@ -116,6 +116,17 @@ export interface ApiCategory {
   endpoints: ApiEndpoint[]
 }
 
+/** A node in the hierarchical category tree (split on "/"). */
+export interface ApiCategoryNode {
+  /** Unique key = full slash path, e.g. "视频生成/即梦格式". */
+  path: string
+  /** Last path segment shown in the UI, e.g. "即梦格式". */
+  title: string
+  /** Endpoints whose category title equals this exact node path. */
+  endpoints: ApiEndpoint[]
+  children: ApiCategoryNode[]
+}
+
 export interface ApiGroup {
   id: 'ai-model' | 'management'
   title: string

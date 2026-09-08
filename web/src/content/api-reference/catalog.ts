@@ -21,6 +21,7 @@ import { useQuery } from '@tanstack/react-query'
 import type {
   ApiCatalog,
   ApiCategory,
+  ApiCategoryNode,
   ApiEndpoint,
   ApiGroup,
   ApiSpecSource,
@@ -29,7 +30,6 @@ import type {
   OpenApiSchema,
 } from './types'
 
-const MANAGEMENT_SPEC_URL = '/openapi/api.json'
 const AI_MODEL_SPEC_URL = '/openapi/relay.json'
 
 const METHODS = ['get', 'post', 'put', 'delete', 'patch', 'head', 'options'] as const
@@ -152,13 +152,9 @@ async function loadAiModel(): Promise<ApiGroup> {
   return buildGroup(await fetchSpec(AI_MODEL_SPEC_URL), 'relay')
 }
 
-async function loadManagement(): Promise<ApiGroup> {
-  return buildGroup(await fetchSpec(MANAGEMENT_SPEC_URL), 'management')
-}
-
 export async function loadApiCatalog(): Promise<ApiCatalog> {
-  const [aiModel, management] = await Promise.all([loadAiModel(), loadManagement()])
-  const groups = [aiModel, management]
+  const aiModel = await loadAiModel()
+  const groups = [aiModel]
   const endpointCount = groups.reduce(
     (sum, group) =>
       sum + group.categories.reduce((s, c) => s + c.endpoints.length, 0),
@@ -214,6 +210,50 @@ export function formatSchemaType(schema: OpenApiSchema | undefined): string {
   }
   if (schema.type === 'object' || schema.properties) return 'object'
   return schema.type ?? (schema.enum ? 'enum' : 'any')
+}
+
+/**
+ * Group flat categories into a hierarchy by splitting titles on "/".
+ * e.g. "视频生成/即梦格式", "视频生成/Kling格式" nest under a "视频生成" node.
+ * A parent node may also carry its own endpoints (tag exactly "视频生成").
+ */
+export function buildCategoryTree(categories: ApiCategory[]): ApiCategoryNode[] {
+  const index = new Map<string, ApiCategoryNode>()
+  const roots: ApiCategoryNode[] = []
+
+  const ensureNode = (path: string): ApiCategoryNode => {
+    let node = index.get(path)
+    if (node) return node
+    const title = path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path
+    node = { path, title, endpoints: [], children: [] }
+    index.set(path, node)
+    const slash = path.lastIndexOf('/')
+    if (slash === -1) {
+      roots.push(node)
+    } else {
+      const parent = ensureNode(path.slice(0, slash))
+      parent.children.push(node)
+    }
+    return node
+  }
+
+  for (const category of categories) {
+    const segments = category.title
+      .split('/')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (segments.length === 0) continue
+    const node = ensureNode(segments.join('/'))
+    node.endpoints.push(...category.endpoints)
+  }
+
+  const sortRecursive = (nodes: ApiCategoryNode[]) => {
+    nodes.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'))
+    for (const node of nodes) sortRecursive(node.children)
+  }
+  sortRecursive(roots)
+
+  return roots
 }
 
 export { slugify }

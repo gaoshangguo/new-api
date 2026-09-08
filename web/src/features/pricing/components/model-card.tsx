@@ -234,7 +234,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             )}
           </div>
           <div className='min-w-0'>
-            <h3 className='text-foreground truncate font-mono text-[15px] leading-tight font-bold'>
+            <h3 className='text-foreground font-mono text-[15px] leading-tight font-bold break-words'>
               {props.model.model_name}
             </h3>
             <div className='mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm sm:mt-1 sm:gap-x-3'>
@@ -270,7 +270,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
 
       {/* Footer: left metadata and right performance summary share row alignment */}
       <div className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:mt-4'>
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
+        <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 [grid-column:1] [grid-row:1]'>
           {primaryGroup && (
             <span className='text-muted-foreground text-sm font-medium'>
               {primaryGroup}
@@ -278,21 +278,17 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           )}
           <ModelBillingModeBadge model={props.model} />
         </div>
-        <ModelPerfBadge perf={props.perf} className='row-span-2 self-start' />
+        <ModelPerfBadge perf={props.perf} className='row-span-2 self-start [grid-column:2] [grid-row:1] [grid-row-end:span-2]' />
 
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 sm:gap-x-3 sm:gap-y-1'>
+        <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs sm:gap-x-3 sm:gap-y-1 [grid-column:1] [grid-row:2]'>
           {bottomTags.map((item) => (
-            <span key={item} className='text-muted-foreground/70 text-xs'>
+            <span key={item} className='text-muted-foreground/70'>
               {item}
             </span>
           ))}
-          <span className='text-muted-foreground/50 text-xs'>
-            {tokenUnitLabel}
-          </span>
+          <span className='text-muted-foreground/50'>{tokenUnitLabel}</span>
           {hiddenCount > 0 && (
-            <span className='text-muted-foreground/40 text-xs'>
-              +{hiddenCount}
-            </span>
+            <span className='text-muted-foreground/40'>+{hiddenCount}</span>
           )}
         </div>
       </div>
