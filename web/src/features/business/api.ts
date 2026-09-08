@@ -35,6 +35,8 @@ import {
   type SalesCustomer,
   type SalesCustomerSummary,
   type SalesUsageLog,
+  type BusinessFollowUp,
+  type SalesProjectReminder,
 } from './types'
 
 function responseData<T>(response: ApiResponse<T>): T {
@@ -52,6 +54,46 @@ export async function getSalesCustomerLogs(
   const response = await api.get<ApiResponse<BusinessPage<SalesUsageLog>>>(
     `/api/business/sales/customers/${companyId}/logs`,
     { params: { p: 1, page_size: 10, start_at: startAt, end_at: endAt } }
+  )
+  return getBusinessItems(responseData(response.data))
+}
+
+export async function getSalesCustomerFollowUps(
+  companyId: number
+): Promise<BusinessFollowUp[]> {
+  const response = await api.get<ApiResponse<BusinessPage<BusinessFollowUp>>>(
+    `/api/business/sales/customers/${companyId}/follow-ups`,
+    { params: { p: 1, page_size: 50 } }
+  )
+  return getBusinessItems(responseData(response.data))
+}
+
+export async function createSalesCustomerFollowUp(
+  companyId: number,
+  payload: { title: string; note?: string; due_at?: number }
+): Promise<BusinessFollowUp> {
+  const response = await api.post<ApiResponse<BusinessFollowUp>>(
+    `/api/business/sales/customers/${companyId}/follow-ups`,
+    payload
+  )
+  return responseData(response.data)
+}
+
+export async function updateSalesCustomerFollowUp(
+  followUpId: number,
+  payload: { title: string; note?: string; status: 'open' | 'done'; due_at?: number }
+): Promise<BusinessFollowUp> {
+  const response = await api.put<ApiResponse<BusinessFollowUp>>(
+    `/api/business/sales/follow-ups/${followUpId}`,
+    payload
+  )
+  return responseData(response.data)
+}
+
+export async function getSalesCustomerReminders(): Promise<SalesProjectReminder[]> {
+  const response = await api.get<ApiResponse<BusinessPage<SalesProjectReminder>>>(
+    '/api/business/sales/reminders',
+    { params: { p: 1, page_size: 50 } }
   )
   return getBusinessItems(responseData(response.data))
 }

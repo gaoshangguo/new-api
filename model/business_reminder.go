@@ -427,3 +427,22 @@ func ListBusinessProjectReminders(userID, projectID int, activeOnly bool, startI
 	}
 	return reminders, total, nil
 }
+
+// ListBusinessProjectRemindersForCompanies scopes active reminders to a set of
+// enterprise companies. Sales supervisors read this through a scoped endpoint,
+// so only reminders for their assigned customers are ever returned.
+func ListBusinessProjectRemindersForCompanies(companyIDs []int, activeOnly bool, startIdx, pageSize int) ([]*BusinessProjectReminder, int64, error) {
+	query := DB.Model(&BusinessProjectReminder{}).Where("company_id IN ?", companyIDs).Order("last_detected_at desc, id desc")
+	if activeOnly {
+		query = query.Where("state = ?", BusinessReminderStateActive)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	reminders := make([]*BusinessProjectReminder, 0)
+	if err := query.Limit(pageSize).Offset(startIdx).Find(&reminders).Error; err != nil {
+		return nil, 0, err
+	}
+	return reminders, total, nil
+}

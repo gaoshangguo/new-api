@@ -120,6 +120,35 @@ export type SalesUsageLog = {
   request_id: string
 }
 
+export type BusinessFollowUp = {
+  id: number
+  company_id: number
+  customer_user_id: number
+  sales_user_id: number
+  title: string
+  note: string
+  status: 'open' | 'done'
+  due_at: number
+  created_at: number
+  updated_at: number
+}
+
+export type SalesProjectReminder = {
+  id: number
+  company_id: number
+  project_id: number
+  owner_user_id: number
+  reminder_type: string
+  state: string
+  title: string
+  content: string
+  metric_value: number
+  threshold_value: number
+  first_detected_at: number
+  last_detected_at: number
+  resolved_at: number
+}
+
 export type BusinessOperationsOverview = {
   company_count: number
   project_count: number
