@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
 
+import { CopyButton } from '@/components/copy-button'
 import { Badge } from '@/components/ui/badge'
 import type {
   ApiEndpoint,
@@ -121,17 +122,17 @@ function SchemaFields({
 function ParameterRow({ param }: { param: OpenApiParameter }) {
   return (
     <tr className='border-t'>
-      <td className='py-2 pr-4 align-top'>
+      <td className='px-3 py-2 align-top'>
         <code className='text-[13px] font-medium'>{param.name}</code>
         {param.required ? (
           <span className='ml-1 text-xs text-rose-500'>*</span>
         ) : null}
       </td>
-      <td className='py-2 pr-4 align-top text-xs text-muted-foreground'>{param.in}</td>
-      <td className='py-2 pr-4 align-top'>
+      <td className='px-3 py-2 align-top text-xs text-muted-foreground'>{param.in}</td>
+      <td className='px-3 py-2 align-top'>
         <ParamSchemaSummary schema={param.schema} />
       </td>
-      <td className='py-2 align-top text-[13px]'>{param.description ?? '—'}</td>
+      <td className='px-3 py-2 align-top text-[13px]'>{param.description ?? '—'}</td>
     </tr>
   )
 }
@@ -162,8 +163,9 @@ export function EndpointDocumentation({ endpoint }: { endpoint: ApiEndpoint }) {
       <div className='flex flex-col gap-3'>
         <div className='flex flex-wrap items-center gap-3'>
           <MethodBadge method={method} />
-          <code className='rounded-md border bg-muted/60 px-2.5 py-1 text-sm break-all'>
-            {path}
+          <code className='flex min-w-0 items-center gap-2 rounded-md border bg-muted/60 px-2.5 py-1 text-sm'>
+            <span className='break-all'>{path}</span>
+            <CopyButton value={path} className='h-6 w-6' />
           </code>
         </div>
         <h1 className='scroll-m-20 text-2xl font-semibold tracking-tight lg:text-3xl'>
@@ -192,14 +194,14 @@ export function EndpointDocumentation({ endpoint }: { endpoint: ApiEndpoint }) {
           <h2 className='scroll-m-20 text-xl font-semibold tracking-tight'>
             {t('Parameters')}
           </h2>
-          <div className='overflow-x-auto'>
-            <table className='w-full text-sm'>
+          <div className='overflow-x-auto rounded-lg border'>
+            <table className='w-full border-collapse text-sm'>
               <thead>
-                <tr className='text-left text-xs text-muted-foreground uppercase'>
-                  <th className='py-1 pr-4 font-medium'>Name</th>
-                  <th className='py-1 pr-4 font-medium'>In</th>
-                  <th className='py-1 pr-4 font-medium'>Type</th>
-                  <th className='py-1 font-medium'>{t('Description')}</th>
+                <tr className='border-b bg-muted/50 text-left text-xs text-muted-foreground uppercase'>
+                  <th className='px-3 py-2 font-medium'>Name</th>
+                  <th className='px-3 py-2 font-medium'>In</th>
+                  <th className='px-3 py-2 font-medium'>Type</th>
+                  <th className='px-3 py-2 font-medium'>{t('Description')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -218,7 +220,9 @@ export function EndpointDocumentation({ endpoint }: { endpoint: ApiEndpoint }) {
           <h2 className='scroll-m-20 text-xl font-semibold tracking-tight'>
             {t('Request Body')}
           </h2>
-          <SchemaFields schema={bodySchema} doc={spec} />
+          <div className='rounded-lg border p-4'>
+            <SchemaFields schema={bodySchema} doc={spec} />
+          </div>
         </section>
       ) : null}
 
@@ -232,21 +236,20 @@ export function EndpointDocumentation({ endpoint }: { endpoint: ApiEndpoint }) {
             {responses.map(([code, response]) => (
               <div
                 key={code}
-                className='flex flex-col gap-1 rounded-lg border p-3 text-sm'
+                className='flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm'
               >
-                <div className='flex items-center gap-2'>
-                  <Badge
-                    variant='outline'
-                    className={cn(
-                      Number(code) >= 200 && Number(code) < 300
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-rose-600 dark:text-rose-400'
-                    )}
-                  >
-                    {code}
-                  </Badge>
-                  <span className='text-muted-foreground'>{response.description}</span>
-                </div>
+                <Badge
+                  variant='outline'
+                  className={cn(
+                    'shrink-0',
+                    Number(code) >= 200 && Number(code) < 300
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-rose-600 dark:text-rose-400'
+                  )}
+                >
+                  {code}
+                </Badge>
+                <span className='text-muted-foreground'>{response.description}</span>
               </div>
             ))}
           </div>
@@ -256,7 +259,12 @@ export function EndpointDocumentation({ endpoint }: { endpoint: ApiEndpoint }) {
       {/* cURL example */}
       <section className='flex flex-col gap-3'>
         <h2 className='scroll-m-20 text-xl font-semibold tracking-tight'>cURL</h2>
-        <pre className='overflow-x-auto rounded-lg border bg-muted/40 p-4 text-[13px] leading-6'><code>{curl}</code></pre>
+        <div className='relative overflow-hidden rounded-lg border bg-muted/40'>
+          <div className='absolute top-2 right-2'>
+            <CopyButton value={curl} />
+          </div>
+          <pre className='overflow-x-auto p-4 text-[13px] leading-6'><code>{curl}</code></pre>
+        </div>
       </section>
     </div>
   )
