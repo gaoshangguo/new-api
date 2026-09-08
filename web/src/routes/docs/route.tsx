@@ -44,7 +44,13 @@ function DocsLayout() {
             {isApiReference ? <ApiReferenceSidebar /> : <DocsSidebar />}
           </aside>
           <main className='min-w-0 flex-1'>
-            <article className={isApiReference ? undefined : 'prose prose-slate dark:prose-invert max-w-none px-2 md:px-8'}>
+            <article
+              className={
+                isApiReference
+                  ? 'px-2 md:px-8'
+                  : 'prose prose-slate dark:prose-invert max-w-none px-2 md:px-8'
+              }
+            >
               <Outlet />
             </article>
           </main>
