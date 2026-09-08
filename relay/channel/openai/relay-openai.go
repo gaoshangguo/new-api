@@ -290,6 +290,19 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 
 	applyUsagePostProcessing(info, &simpleResponse.Usage, responseBody)
 
+	// DeepSeek KV cache fields: when the relay rebuilt usage (usageModified) or
+	// is forcing a re-format, the response body must carry the derived
+	// prompt_cache_hit_tokens / prompt_cache_miss_tokens. With the default
+	// passthrough the upstream body is relayed verbatim, so the derived fields
+	// cannot be injected without re-marshaling the whole payload — acceptable,
+	// since the upstream that lacks the KV cache fields is the one whose body
+	// is passed through unchanged.
+	if info.ChannelType == constant.ChannelTypeDeepSeek &&
+		(usageModified || forceFormat) &&
+		(simpleResponse.Usage.PromptCacheHitTokens != 0 || simpleResponse.Usage.PromptCacheMissTokens != 0) {
+		usageModified = true
+	}
+
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
 		if usageModified {

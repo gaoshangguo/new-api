@@ -221,13 +221,14 @@ type CompletionsStreamResponse struct {
 }
 
 type Usage struct {
-	PromptTokens         int           `json:"prompt_tokens"`
-	CompletionTokens     int           `json:"completion_tokens"`
-	TotalTokens          int           `json:"total_tokens"`
-	PromptCacheHitTokens int           `json:"prompt_cache_hit_tokens,omitempty"`
-	UsageSemantic        string        `json:"usage_semantic,omitempty"`
-	UsageSource          string        `json:"usage_source,omitempty"`
-	BillingUsage         *BillingUsage `json:"billing_usage,omitempty"`
+	PromptTokens          int           `json:"prompt_tokens"`
+	CompletionTokens      int           `json:"completion_tokens"`
+	TotalTokens           int           `json:"total_tokens"`
+	PromptCacheHitTokens  int           `json:"prompt_cache_hit_tokens,omitempty"`
+	PromptCacheMissTokens int           `json:"prompt_cache_miss_tokens,omitempty"`
+	UsageSemantic         string        `json:"usage_semantic,omitempty"`
+	UsageSource           string        `json:"usage_source,omitempty"`
+	BillingUsage          *BillingUsage `json:"billing_usage,omitempty"`
 
 	PromptTokensDetails    InputTokenDetails  `json:"prompt_tokens_details"`
 	CompletionTokenDetails OutputTokenDetails `json:"completion_tokens_details"`
@@ -281,6 +282,32 @@ func (d InputTokenDetails) CacheCreationTokensTotal() int {
 		return 0
 	}
 	return total
+}
+
+// CacheReadTokens returns the canonical cache-hit (read) token count used for
+// billing. Upstreams report hits under different fields depending on the API
+// shape: prompt_tokens_details.cached_tokens (standard OpenAI chat), an
+// equivalent cached_tokens under input_tokens_details (OpenAI Responses), or
+// prompt_cache_hit_tokens (native DeepSeek KV-cache). The relay keeps
+// PromptTokensDetails.CachedTokens in sync after usage post-processing, so
+// that field wins when present; the others are fallbacks for rebuilds that
+// skipped that step. Anthropic usage maps cache_read_input_tokens into
+// PromptTokensDetails.CachedTokens before this is called. Choosing one
+// canonical source keeps pre-consume and settlement on the same hit count.
+func (u *Usage) CacheReadTokens() int {
+	if u == nil {
+		return 0
+	}
+	if u.PromptTokensDetails.CachedTokens > 0 {
+		return u.PromptTokensDetails.CachedTokens
+	}
+	if u.InputTokensDetails != nil && u.InputTokensDetails.CachedTokens > 0 {
+		return u.InputTokensDetails.CachedTokens
+	}
+	if u.PromptCacheHitTokens > 0 {
+		return u.PromptCacheHitTokens
+	}
+	return 0
 }
 
 type OutputTokenDetails struct {

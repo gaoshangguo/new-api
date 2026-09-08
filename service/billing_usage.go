@@ -136,6 +136,19 @@ func usageFromOpenAIBillingUsage(billingUsage *dto.BillingUsage) *dto.Usage {
 	if usage.PromptTokensDetails.CachedTokens == 0 && usage.PromptCacheHitTokens > 0 {
 		usage.PromptTokensDetails.CachedTokens = usage.PromptCacheHitTokens
 	}
+	// Mirror the DeepSeek derivation so the settled usage keeps both KV cache
+	// fields even when it is rebuilt from the stored BillingUsage. Note that
+	// usageFromOpenAIBillingUsage clones PromptCacheMissTokens, so re-deriving
+	// with cached == 0 after a previous non-zero miss is impossible: the clone
+	// preserved it. Guard with the same bounds as applyUsagePostProcessing.
+	if usage.PromptCacheMissTokens == 0 && usage.PromptTokens > 0 && usage.PromptTokensDetails.CachedTokens >= 0 {
+		cached := usage.PromptTokensDetails.CachedTokens
+		if cached > usage.PromptTokens {
+			cached = usage.PromptTokens
+		}
+		usage.PromptCacheHitTokens = cached
+		usage.PromptCacheMissTokens = usage.PromptTokens - cached
+	}
 	usage.UsageSemantic = dto.BillingUsageSemanticOpenAI
 	usage.UsageSource = billingUsage.Source
 	usage.BillingUsage = dto.CloneBillingUsage(billingUsage)

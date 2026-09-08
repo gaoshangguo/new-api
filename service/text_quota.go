@@ -257,7 +257,12 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.PromptTokens = usage.PromptTokens
 	summary.CompletionTokens = usage.CompletionTokens
 	summary.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	summary.CacheTokens = usage.PromptTokensDetails.CachedTokens
+	// Canonical cache-hit source (see dto.Usage.CacheReadTokens): upstreams may
+	// report hits under prompt_tokens_details.cached_tokens (standard),
+	// input_tokens_details.cached_tokens (Responses), or
+	// prompt_cache_hit_tokens (DeepSeek). Keeping the log and both billing
+	// paths on the same count avoids streaming/non-streaming divergence.
+	summary.CacheTokens = usage.CacheReadTokens()
 	summary.CacheCreationTokens = usage.PromptTokensDetails.CacheCreationTokensTotal()
 	summary.CacheCreationTokens5m = usage.ClaudeCacheCreation5mTokens
 	summary.CacheCreationTokens1h = usage.ClaudeCacheCreation1hTokens
@@ -278,6 +283,16 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 			}
 		}
 		summary.PromptTokens -= summary.CacheCreationTokens
+	}
+
+	// In OpenAI/Gemini semantics cache hits are a subset of prompt tokens.
+	// Clamp a malformed upstream hit count so it can never bill more cached
+	// tokens than the prompt actually contained (never inflate the charge);
+	// Claude semantics keep cache read separate from input_tokens, and legacy
+	// Claude-derived OpenAI usage reports text-only prompt tokens, so both are
+	// exempt from the clamp.
+	if !summary.IsClaudeUsageSemantic && !legacyClaudeDerived && summary.CacheTokens > summary.PromptTokens {
+		summary.CacheTokens = summary.PromptTokens
 	}
 
 	dPromptTokens := decimal.NewFromInt(int64(summary.PromptTokens))

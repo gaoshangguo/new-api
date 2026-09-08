@@ -127,6 +127,7 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 		}
 		if err := common.Unmarshal(raw, &chunk); err == nil {
 			normalizeOpenAIUsage(&chunk.Usage)
+			applyUsagePostProcessing(info, &chunk.Usage, raw)
 			if service.ValidUsage(&chunk.Usage) {
 				usage = &chunk.Usage
 			}

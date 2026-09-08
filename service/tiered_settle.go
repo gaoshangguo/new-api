@@ -25,7 +25,12 @@ type TieredResultWrapper = billingexpr.TieredResult
 func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVars map[string]bool) billingexpr.TokenParams {
 	p := float64(usage.PromptTokens)
 	c := float64(usage.CompletionTokens)
-	cr := float64(usage.PromptTokensDetails.CachedTokens)
+	// Cache-read (hit) tokens feed the `cr` expression variable so a pricing
+	// expression can charge the cached portion at a lower rate. The hit count
+	// comes from one canonical source (Usage.CacheReadTokens, which prefers
+	// prompt_tokens_details.cached_tokens) so streaming and non-streaming
+	// settlement never diverge.
+	cr := float64(usage.CacheReadTokens())
 	cc5m := float64(usage.PromptTokensDetails.CacheCreationTokensTotal())
 	cc1h := float64(0)
 
@@ -48,6 +53,13 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 	}
 
 	if !isClaudeUsageSemantic {
+		// In OpenAI/Gemini semantics cached tokens are a subset of prompt
+		// tokens. Clamp a malformed upstream hit count so it can neither push
+		// the miss remainder negative nor inflate the charge beyond the actual
+		// prompt size.
+		if cr > p {
+			cr = p
+		}
 		if usedVars["cr"] {
 			p -= cr
 		}
