@@ -17,6 +17,19 @@ func applyUsagePostProcessing(info *relaycommon.RelayInfo, usage *dto.Usage, res
 		if usage.PromptTokensDetails.CachedTokens == 0 && usage.PromptCacheHitTokens != 0 {
 			usage.PromptTokensDetails.CachedTokens = usage.PromptCacheHitTokens
 		}
+		// DeepSeek KV cache: derive prompt_cache_hit_tokens /
+		// prompt_cache_miss_tokens from cached_tokens when the upstream only
+		// reports prompt_tokens_details.cached_tokens (e.g. Tencent tokenhub).
+		// cached_tokens can never exceed prompt_tokens; clamp defensively so a
+		// malformed upstream value can not produce a negative miss count.
+		if usage.PromptCacheMissTokens == 0 && usage.PromptTokens > 0 && usage.PromptTokensDetails.CachedTokens >= 0 {
+			cached := usage.PromptTokensDetails.CachedTokens
+			if cached > usage.PromptTokens {
+				cached = usage.PromptTokens
+			}
+			usage.PromptCacheHitTokens = cached
+			usage.PromptCacheMissTokens = usage.PromptTokens - cached
+		}
 	case constant.ChannelTypeZhipu_v4:
 		// 智普的cached_tokens在标准位置: usage.prompt_tokens_details.cached_tokens
 		if usage.PromptTokensDetails.CachedTokens == 0 {
@@ -60,8 +73,9 @@ func extractCachedTokensFromBody(body []byte) (int, bool) {
 			PromptTokensDetails struct {
 				CachedTokens *int `json:"cached_tokens"`
 			} `json:"prompt_tokens_details"`
-			CachedTokens         *int `json:"cached_tokens"`
-			PromptCacheHitTokens *int `json:"prompt_cache_hit_tokens"`
+			CachedTokens          *int `json:"cached_tokens"`
+			PromptCacheHitTokens  *int `json:"prompt_cache_hit_tokens"`
+			PromptCacheMissTokens *int `json:"prompt_cache_miss_tokens"`
 		} `json:"usage"`
 	}
 
