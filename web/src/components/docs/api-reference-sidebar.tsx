@@ -21,7 +21,8 @@ import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { useApiCatalog } from '@/content/api-reference/catalog'
+import { buildCategoryTree, useApiCatalog } from '@/content/api-reference/catalog'
+import type { ApiCategoryNode, ApiEndpoint } from '@/content/api-reference/types'
 import { cn } from '@/lib/utils'
 
 const METHOD_STYLES: Record<string, string> = {
@@ -34,12 +35,103 @@ const METHOD_STYLES: Record<string, string> = {
   options: 'text-slate-500 dark:text-slate-400',
 }
 
+function EndpointNavLink({
+  endpoint,
+  active,
+}: {
+  endpoint: ApiEndpoint
+  active: string
+}) {
+  return (
+    <Link
+      to='/docs/api-reference/$endpointId'
+      params={{ endpointId: endpoint.id }}
+      className={cn(
+        'flex items-center gap-2 rounded-md px-3 py-1 text-[13px] transition-colors',
+        active === endpoint.id
+          ? 'bg-accent text-accent-foreground font-medium'
+          : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+      )}
+    >
+      <span
+        className={cn(
+          'w-10 shrink-0 text-xs font-semibold',
+          METHOD_STYLES[endpoint.method]
+        )}
+      >
+        {endpoint.method.toUpperCase()}
+      </span>
+      <span className='truncate'>{endpoint.summary}</span>
+    </Link>
+  )
+}
+
+function CategoryTreeNode({
+  node,
+  active,
+  collapsed,
+  onToggle,
+}: {
+  node: ApiCategoryNode
+  active: string
+  collapsed: Record<string, boolean>
+  onToggle: (key: string) => void
+}) {
+  const hasChildren = node.children.length > 0
+  const hasContent = node.endpoints.length > 0 || hasChildren
+  const isCollapsed = collapsed[node.path] ?? false
+
+  if (!hasContent) return null
+
+  return (
+    <div className='flex flex-col'>
+      {hasChildren ? (
+        <button
+          type='button'
+          onClick={() => onToggle(node.path)}
+          className='flex w-full items-center justify-between gap-1 rounded-md px-3 py-1 text-left text-[13px] font-medium text-foreground/90 transition-colors hover:bg-accent hover:text-accent-foreground'
+        >
+          <span className='truncate'>{node.title}</span>
+          {isCollapsed ? (
+            <ChevronRight className='h-3.5 w-3.5 shrink-0 text-muted-foreground' />
+          ) : (
+            <ChevronDown className='h-3.5 w-3.5 shrink-0 text-muted-foreground' />
+          )}
+        </button>
+      ) : (
+        <span className='px-3 py-1 text-xs text-muted-foreground/70'>
+          {node.title}
+        </span>
+      )}
+      {!isCollapsed && (
+        <div className='ml-2 flex flex-col border-l pl-2'>
+          {node.endpoints.map((endpoint) => (
+            <EndpointNavLink key={endpoint.id} endpoint={endpoint} active={active} />
+          ))}
+          {node.children.map((child) => (
+            <CategoryTreeNode
+              key={child.path}
+              node={child}
+              active={active}
+              collapsed={collapsed}
+              onToggle={onToggle}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Left rail shown on /docs/api-reference* pages. */
 export function ApiReferenceSidebar() {
   const { t } = useTranslation()
   const { pathname } = useLocation()
   const catalog = useApiCatalog()
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  const toggle = (key: string) =>
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))
 
   if (catalog.isLoading) {
     return (
@@ -79,9 +171,7 @@ export function ApiReferenceSidebar() {
           <div key={group.id} className='mt-1'>
             <button
               type='button'
-              onClick={() =>
-                setCollapsed((prev) => ({ ...prev, [group.id]: !prev[group.id] }))
-              }
+              onClick={() => toggle(group.id)}
               className='flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left text-xs font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground'
             >
               <span>{group.title}</span>
@@ -93,30 +183,14 @@ export function ApiReferenceSidebar() {
             </button>
             {!isCollapsed && (
               <div className='mt-0.5 ml-2 flex flex-col border-l pl-2'>
-                {group.categories.map((category) => (
-                  <div key={category.id} className='flex flex-col'>
-                    <span className='px-3 py-1 text-xs text-muted-foreground/70'>
-                      {category.title}
-                    </span>
-                    {category.endpoints.map((endpoint) => (
-                      <Link
-                        key={endpoint.id}
-                        to='/docs/api-reference/$endpointId'
-                        params={{ endpointId: endpoint.id }}
-                        className={cn(
-                          'flex items-center gap-2 rounded-md px-3 py-1 text-[13px] transition-colors',
-                          active === endpoint.id
-                            ? 'bg-accent text-accent-foreground font-medium'
-                            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                        )}
-                      >
-                        <span className={cn('w-10 shrink-0 text-xs font-semibold', METHOD_STYLES[endpoint.method])}>
-                          {endpoint.method.toUpperCase()}
-                        </span>
-                        <span className='truncate'>{endpoint.summary}</span>
-                      </Link>
-                    ))}
-                  </div>
+                {buildCategoryTree(group.categories).map((node) => (
+                  <CategoryTreeNode
+                    key={node.path}
+                    node={node}
+                    active={active}
+                    collapsed={collapsed}
+                    onToggle={toggle}
+                  />
                 ))}
               </div>
             )}

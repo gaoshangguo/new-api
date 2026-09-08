@@ -1,4 +1,4 @@
-import { BarChart3, BookOpen, Coins, CreditCard, Download, FileText, HelpCircle, Key, ListTodo, MessageSquare, Settings, Wallet, Zap } from 'lucide-react'
+import { BarChart3, BookOpen, Coins, CreditCard, ExternalLink, FileText, HelpCircle, Key, ListTodo, MessageSquare, Settings, Wallet, Zap } from 'lucide-react'
 import { Link, useLocation } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
@@ -17,7 +17,6 @@ export function DocsSidebar() {
 
   const navItems: NavItem[] = [
     { title: t('Quick Start'), href: '/docs/quick-start', icon: Zap },
-    { title: t('Installation'), href: '/docs/installation', icon: Download },
     {
       title: t('Feature Guide'),
       children: [
@@ -33,6 +32,12 @@ export function DocsSidebar() {
       ],
     },
     { title: t('API Reference'), href: '/docs/api-reference', icon: BookOpen },
+    {
+      title: t('API Quick Integration'),
+      href: 'https://app.apifox.com/main/teams/4381043?tab=project',
+      icon: ExternalLink,
+      external: true,
+    },
     { title: t('FAQ'), href: '/docs/faq', icon: HelpCircle },
   ]
 
@@ -41,31 +46,53 @@ export function DocsSidebar() {
       {navItems.map((item) => {
         const hasActiveChild =
           item.children?.some((child) => location.pathname === child.href) ?? false
+        const isActive = item.href ? location.pathname === item.href : false
+        let heading: React.ReactNode = null
+        if (item.external && item.href) {
+          heading = (
+            <a
+              href={item.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
+                'text-muted-foreground'
+              )}
+            >
+              {item.icon && <item.icon className="h-4 w-4 shrink-0" />}
+              <span>{item.title}</span>
+            </a>
+          )
+        } else if (item.href) {
+          heading = (
+            <Link
+              to={item.href}
+              className={cn(
+                'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
+                isActive
+                  ? 'bg-accent text-accent-foreground font-medium'
+                  : 'text-muted-foreground'
+              )}
+            >
+              {item.icon && <item.icon className="h-4 w-4 shrink-0" />}
+              <span>{item.title}</span>
+            </Link>
+          )
+        } else {
+          heading = (
+            <div
+              className={cn(
+                'px-3 py-1.5 text-xs font-semibold uppercase tracking-wider',
+                hasActiveChild ? 'text-foreground' : 'text-muted-foreground'
+              )}
+            >
+              {item.title}
+            </div>
+          )
+        }
         return (
           <div key={item.title}>
-            {item.href ? (
-              <Link
-                to={item.href}
-                className={cn(
-                  'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
-                  location.pathname === item.href
-                    ? 'bg-accent text-accent-foreground font-medium'
-                    : 'text-muted-foreground'
-                )}
-              >
-                {item.icon && <item.icon className="h-4 w-4 shrink-0" />}
-                <span>{item.title}</span>
-              </Link>
-            ) : (
-              <div
-                className={cn(
-                  'px-3 py-1.5 text-xs font-semibold uppercase tracking-wider',
-                  hasActiveChild ? 'text-foreground' : 'text-muted-foreground'
-                )}
-              >
-                {item.title}
-              </div>
-            )}
+            {heading}
             {item.children && (
               <div className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l pl-3">
                 {item.children.map((child) => {
