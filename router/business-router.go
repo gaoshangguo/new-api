@@ -91,6 +91,7 @@ func registerBusinessRoutes(apiRouter *gin.RouterGroup) {
 			salesRoute.GET("/customers/:id/follow-ups", middleware.RequirePermission(authz.BusinessFollowUpRead), controller.ListSalesCustomerFollowUps)
 			salesRoute.POST("/customers/:id/follow-ups", middleware.RequirePermission(authz.BusinessFollowUpCreate), controller.CreateSalesCustomerFollowUp)
 			salesRoute.PUT("/follow-ups/:id", middleware.RequirePermission(authz.BusinessFollowUpUpdate), controller.UpdateSalesCustomerFollowUp)
+			salesRoute.GET("/reminders", middleware.RequirePermission(authz.BusinessFollowUpRead), controller.ListSalesCustomerReminders)
 		}
 
 		operationsRoute := businessRoute.Group("/operations")

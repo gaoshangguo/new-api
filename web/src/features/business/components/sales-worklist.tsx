@@ -49,6 +49,9 @@ import {
   getSalesCustomerLogs,
 } from '../api'
 
+import { SalesFollowUps } from './sales-follow-ups'
+import { SalesReminders } from './sales-reminders'
+
 export function SalesWorklist() {
   const [exportReport, setExportReport] = useState<'ledger' | 'consumption' | null>(null)
   const { t } = useTranslation()
@@ -166,6 +169,7 @@ export function SalesWorklist() {
           </Button>
         </CardContent>
       </Card>
+      <SalesReminders />
       <Card>
       <CardHeader>
         <CardTitle>{t('Sales worklist')}</CardTitle>
@@ -344,6 +348,7 @@ export function SalesWorklist() {
                 </div>
               )}
             </div>
+            <SalesFollowUps companyId={selectedCustomerId ?? 0} />
           </div>
         )}
       </CardContent>

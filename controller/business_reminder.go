@@ -53,6 +53,42 @@ func TriggerBusinessReminderScan(c *gin.Context) {
 	})
 }
 
+// ListSalesCustomerReminders returns active reminders for a sales user's
+// assigned customers. Platform managers see all enterprise reminders; sales
+// supervisors are scoped to their current assignments.
+func ListSalesCustomerReminders(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	activeOnly := !businessReminderIncludeResolved(c)
+	if canAccessAllSalesCustomers(c) {
+		reminders, total, err := model.ListBusinessProjectReminders(0, 0, activeOnly, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		businessReminderPageSuccess(c, reminders, total)
+		return
+	}
+	companies, _, err := model.ListSalesCompanies(c.GetInt("id"), 0, 1000)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	companyIDs := make([]int, 0, len(companies))
+	for _, company := range companies {
+		companyIDs = append(companyIDs, company.Id)
+	}
+	if len(companyIDs) == 0 {
+		businessReminderPageSuccess(c, []*model.BusinessProjectReminder{}, 0)
+		return
+	}
+	reminders, total, err := model.ListBusinessProjectRemindersForCompanies(companyIDs, activeOnly, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	businessReminderPageSuccess(c, reminders, total)
+}
+
 func businessReminderProjectID(c *gin.Context) (int, error) {
 	value := strings.TrimSpace(c.Query("project_id"))
 	if value == "" {
