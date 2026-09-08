@@ -6,6 +6,7 @@ import { pluginMdx } from '@rsbuild/plugin-mdx'
 import { pluginReact } from '@rsbuild/plugin-react'
 import { pluginTailwindcss } from '@rsbuild/plugin-tailwindcss'
 import { tanstackRouter } from '@tanstack/router-plugin/rspack'
+import remarkGfm from 'remark-gfm'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -25,7 +26,15 @@ export default defineConfig(({ envMode }) => {
   ) as Record<string, { target: string; changeOrigin: boolean }>
 
   return {
-    plugins: [pluginReact(), pluginMdx(), pluginTailwindcss({ optimize: false })],
+    plugins: [
+      pluginReact(),
+      pluginMdx({
+        mdxLoaderOptions: {
+          remarkPlugins: [remarkGfm],
+        },
+      }),
+      pluginTailwindcss({ optimize: false }),
+    ],
     // Rsbuild 2: replaces deprecated `performance.chunkSplit` (RSPack 2 aligned)
     splitChunks: {
       preset: 'default',
