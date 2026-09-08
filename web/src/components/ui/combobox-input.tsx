@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Check, ChevronsUpDown } from 'lucide-react'
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 
 import { Input } from '@/components/ui/input'
@@ -59,7 +60,12 @@ export function ComboboxInput({
   const containerRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const listRef = React.useRef<HTMLUListElement>(null)
+  const dropdownRef = React.useRef<HTMLDivElement>(null)
   const pointerFocusRef = React.useRef(false)
+  const [dropdownStyle, setDropdownStyle] = React.useState<React.CSSProperties>({
+    position: 'fixed',
+    visibility: 'hidden',
+  })
   const selectedOption = React.useMemo(
     () => options.find((option) => option.value === value),
     [options, value]
@@ -86,9 +92,11 @@ export function ComboboxInput({
     if (!open) return
 
     const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node
       if (
         containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
+        !containerRef.current.contains(target) &&
+        !dropdownRef.current?.contains(target)
       ) {
         setOpen(false)
         setSearchValue('')
@@ -158,6 +166,48 @@ export function ComboboxInput({
     open &&
     (filteredOptions.length > 0 || (allowCustomValue && searchValue.trim()))
 
+  // Render the dropdown through a portal at the document root and position it
+  // relative to the input. Ancestors with `overflow: hidden/auto` (such as the
+  // table scroll container) would otherwise clip the absolutely-positioned
+  // dropdown, so it must live outside that subtree.
+  React.useLayoutEffect(() => {
+    if (!showDropdown) return
+    const input = inputRef.current
+    if (!input) return
+
+    const updatePosition = () => {
+      const rect = input.getBoundingClientRect()
+      const marginTop = 4
+      const maxHeight = 200
+      const list = listRef.current
+      const contentHeight = list
+        ? Math.min(list.scrollHeight + 8, maxHeight + 8)
+        : maxHeight + 8
+      const spaceBelow = window.innerHeight - rect.bottom - marginTop
+      const openUpward =
+        spaceBelow < contentHeight && rect.top > contentHeight + marginTop
+
+      setDropdownStyle({
+        position: 'fixed',
+        left: rect.left,
+        width: rect.width,
+        maxHeight,
+        visibility: 'visible',
+        ...(openUpward
+          ? { bottom: window.innerHeight - rect.top + marginTop }
+          : { top: rect.bottom + marginTop }),
+      })
+    }
+
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [showDropdown, filteredOptions, searchValue])
+
   return (
     <div ref={containerRef} className='relative'>
       <Input
@@ -197,57 +247,63 @@ export function ComboboxInput({
       />
       <ChevronsUpDown className='pointer-events-none absolute top-1/2 right-3 size-4 shrink-0 -translate-y-1/2 opacity-50' />
 
-      {showDropdown && (
-        <div className='bg-popover text-popover-foreground absolute top-full z-100 mt-1 w-full rounded-md border shadow-md'>
-          {filteredOptions.length > 0 ? (
-            <ul
-              ref={listRef}
-              role='listbox'
-              className='max-h-[200px] overflow-y-auto p-1'
-            >
-              {filteredOptions.map((option, index) => (
-                <li
-                  key={option.value}
-                  role='option'
-                  aria-selected={value === option.value}
-                  data-highlighted={index === highlightedIndex}
-                  className={cn(
-                    'relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm select-none',
-                    index === highlightedIndex &&
-                      'bg-accent text-accent-foreground',
-                    value === option.value && 'font-medium'
-                  )}
-                  onMouseEnter={() => setHighlightedIndex(index)}
-                  onMouseDown={(e) => {
-                    e.preventDefault() // Prevent blur
-                    handleSelect(option.value)
-                  }}
-                >
-                  <Check
+      {showDropdown &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            style={dropdownStyle}
+            className='bg-popover text-popover-foreground z-100 rounded-md border shadow-md'
+          >
+            {filteredOptions.length > 0 ? (
+              <ul
+                ref={listRef}
+                role='listbox'
+                className='max-h-[200px] overflow-y-auto p-1'
+              >
+                {filteredOptions.map((option, index) => (
+                  <li
+                    key={option.value}
+                    role='option'
+                    aria-selected={value === option.value}
+                    data-highlighted={index === highlightedIndex}
                     className={cn(
-                      'size-4 shrink-0',
-                      value === option.value ? 'opacity-100' : 'opacity-0'
+                      'relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm select-none',
+                      index === highlightedIndex &&
+                        'bg-accent text-accent-foreground',
+                      value === option.value && 'font-medium'
                     )}
-                  />
-                  {option.icon && <span>{option.icon}</span>}
-                  <span className='truncate'>{option.label}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className='px-2 py-6 text-center text-sm'>
-              {t(emptyText)}
-              {allowCustomValue && searchValue.trim() && (
-                <div className='text-muted-foreground mt-1 text-xs'>
-                  {t('Press Enter to use "{{value}}"', {
-                    value: searchValue.trim(),
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+                    onMouseEnter={() => setHighlightedIndex(index)}
+                    onMouseDown={(e) => {
+                      e.preventDefault() // Prevent blur
+                      handleSelect(option.value)
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        'size-4 shrink-0',
+                        value === option.value ? 'opacity-100' : 'opacity-0'
+                      )}
+                    />
+                    {option.icon && <span>{option.icon}</span>}
+                    <span className='truncate'>{option.label}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className='px-2 py-6 text-center text-sm'>
+                {t(emptyText)}
+                {allowCustomValue && searchValue.trim() && (
+                  <div className='text-muted-foreground mt-1 text-xs'>
+                    {t('Press Enter to use "{{value}}"', {
+                      value: searchValue.trim(),
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }
