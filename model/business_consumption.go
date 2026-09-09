@@ -67,6 +67,22 @@ type BusinessConsumptionFilter struct {
 	EndAt     int64
 }
 
+// ListCompanyConsumptionModelNames returns the distinct model names recorded
+// in the consumption projection for one company, ordered for a stable export
+// filter dropdown.
+func ListCompanyConsumptionModelNames(companyID int) ([]string, error) {
+	names := make([]string, 0)
+	if companyID <= 0 {
+		return names, nil
+	}
+	err := DB.Model(&BusinessConsumption{}).
+		Where("company_id = ?", companyID).
+		Distinct().
+		Order("model_name asc").
+		Pluck("model_name", &names).Error
+	return names, err
+}
+
 type CompanyUsageSummary struct {
 	Last7DaysQuota  int64 `json:"last_7_days_quota"`
 	Last30DaysQuota int64 `json:"last_30_days_quota"`

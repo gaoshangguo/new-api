@@ -16,20 +16,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
+import { ComboboxInput } from '@/components/ui/combobox-input'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 import {
   exportBusinessConsumptions,
   exportBalanceLedgers,
   exportSalesCustomerConsumptions,
   exportSalesCustomerLedgers,
+  getSalesCustomerExportModelOptions,
   type BalanceLedgerExportFilters,
 } from '../api'
 
@@ -62,6 +73,22 @@ const DEFAULT_FILTERS: LedgerExportForm = {
   endAt: '',
 }
 
+const ENTRY_TYPE_ALL = '__all__'
+
+// Balance ledger entry types are a fixed business vocabulary (see
+// model/business.go LedgerEntry* constants), so they render as a selectable
+// list instead of free text.
+const LEDGER_ENTRY_TYPES = [
+  { value: 'manual_credit', labelKey: 'Manual credit' },
+  { value: 'manual_debit', labelKey: 'Manual debit' },
+  { value: 'compensation', labelKey: 'Compensation' },
+  { value: 'freeze', labelKey: 'Freeze' },
+  { value: 'unfreeze', labelKey: 'Unfreeze' },
+  { value: 'opening_balance', labelKey: 'Opening balance' },
+  { value: 'consumption', labelKey: 'Consumption' },
+  { value: 'consumption_refund', labelKey: 'Consumption refund' },
+]
+
 function optionalPositiveInt(value: string): number | undefined {
   const parsed = Number(value)
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined
@@ -80,6 +107,24 @@ export function LedgerExportDialog(props: LedgerExportDialogProps) {
   const isConsumption = props.report === 'consumption'
   const exportLabel = isConsumption ? t('Export consumption') : t('Export ledger')
   const isCompanyScoped = props.companyId !== undefined && props.companyId > 0
+
+  // Sales exports can restrict by the model names that actually exist for the
+  // assigned customer; platform exports keep free-text model filtering.
+  const { data: customerModels = [] } = useQuery({
+    queryKey: [
+      'business',
+      'sales',
+      'customers',
+      props.companyId,
+      'export-model-options',
+    ],
+    queryFn: () => getSalesCustomerExportModelOptions(props.companyId as number),
+    enabled: isCompanyScoped,
+  })
+  const modelOptions = [
+    { value: '', label: t('All') },
+    ...customerModels.map((name) => ({ value: name, label: name })),
+  ]
 
   const handleOpenChange = (open: boolean) => {
     props.onOpenChange(open)
@@ -190,18 +235,49 @@ export function LedgerExportDialog(props: LedgerExportDialogProps) {
         ) : null}
         <div className='grid gap-2'>
           <Label htmlFor='ledger-export-model'>{t('Model name')}</Label>
-          <Input id='ledger-export-model' value={filters.modelName} onChange={(event) => updateFilter('modelName', event.target.value)} />
+          <ComboboxInput
+            id='ledger-export-model'
+            options={modelOptions}
+            value={filters.modelName}
+            onValueChange={(value) => updateFilter('modelName', value)}
+            placeholder={t('All')}
+            emptyText={t('No results')}
+            allowCustomValue
+          />
         </div>
         {!isConsumption ? (
           <div className='grid gap-2'>
             <Label htmlFor='ledger-export-entry-type'>{t('Entry type')}</Label>
-            <Input
-              id='ledger-export-entry-type'
-              value={filters.entryType}
-              onChange={(event) =>
-                updateFilter('entryType', event.target.value)
+            <Select
+              items={[
+                { value: ENTRY_TYPE_ALL, label: t('All') },
+                ...LEDGER_ENTRY_TYPES.map((entry) => ({
+                  value: entry.value,
+                  label: t(entry.labelKey),
+                })),
+              ]}
+              value={filters.entryType || ENTRY_TYPE_ALL}
+              onValueChange={(value) =>
+                updateFilter(
+                  'entryType',
+                  value === ENTRY_TYPE_ALL ? '' : (value ?? '')
+                )
               }
-            />
+            >
+              <SelectTrigger id='ledger-export-entry-type'>
+                <SelectValue placeholder={t('All')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value={ENTRY_TYPE_ALL}>{t('All')}</SelectItem>
+                  {LEDGER_ENTRY_TYPES.map((entry) => (
+                    <SelectItem key={entry.value} value={entry.value}>
+                      {t(entry.labelKey)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </div>
         ) : null}
         <div className='grid gap-2'>

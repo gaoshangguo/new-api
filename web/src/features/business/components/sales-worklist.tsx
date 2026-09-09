@@ -51,6 +51,7 @@ import {
 
 import { SalesFollowUps } from './sales-follow-ups'
 import { SalesReminders } from './sales-reminders'
+import { SalesCustomerLogsDialog } from './sales-customer-logs'
 
 export function SalesWorklist() {
   const [exportReport, setExportReport] = useState<'ledger' | 'consumption' | null>(null)
@@ -60,6 +61,7 @@ export function SalesWorklist() {
   )
   const [logStartDate, setLogStartDate] = useState('')
   const [logEndDate, setLogEndDate] = useState('')
+  const [logsOpen, setLogsOpen] = useState(false)
   const customersQuery = useQuery({
     queryKey: ['business', 'sales', 'customers'],
     queryFn: getSalesCustomers,
@@ -282,9 +284,17 @@ export function SalesWorklist() {
             <div>
               <div className='mb-2 flex flex-wrap items-center justify-between gap-2'>
                 <p className='text-sm font-medium'>{t('Recent usage logs')}</p>
-                <div className='flex gap-2'>
+                <div className='flex flex-wrap items-center gap-2'>
                   <Input aria-label={t('Start date')} className='h-8 w-36' type='date' value={logStartDate} onChange={(event) => setLogStartDate(event.target.value)} />
                   <Input aria-label={t('End date')} className='h-8 w-36' type='date' value={logEndDate} onChange={(event) => setLogEndDate(event.target.value)} />
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => setLogsOpen(true)}
+                  >
+                    {t('View all logs')}
+                  </Button>
                 </div>
               </div>
               {logsQuery.isLoading && <Skeleton className='h-20 w-full' />}
@@ -364,6 +374,14 @@ export function SalesWorklist() {
           companyId={selectedCustomerId ?? undefined}
         />
       ) : null}
+      {selectedCustomerId != null && (
+        <SalesCustomerLogsDialog
+          open={logsOpen}
+          onOpenChange={setLogsOpen}
+          companyId={selectedCustomerId}
+          customerName={summary?.customer.name ?? ''}
+        />
+      )}
     </>
   )
 }

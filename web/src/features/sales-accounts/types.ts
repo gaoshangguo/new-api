@@ -16,26 +16,36 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, redirect } from '@tanstack/react-router'
-import { z } from 'zod'
 
-import { CustomerAssignmentsPage } from '@/features/customer-assignments'
-import { USER_ROLE } from '@/features/users/constants'
-import { useAuthStore } from '@/stores/auth-store'
+export type SalesAccount = {
+  user_id: number
+  username: string
+  display_name: string
+  status: number
+  department: string
+  region: string
+  note: string
+  customer_count: number
+  created_at: number
+}
 
-const customerAssignmentsSearchSchema = z.object({
-  sales: z.string().optional().catch(''),
-  account: z.string().optional().catch(''),
-})
+export type SalesAccountPayload = {
+  username: string
+  password: string
+  display_name: string
+  email?: string
+  department: string
+  region: string
+  note: string
+}
 
-export const Route = createFileRoute(
-  '/_authenticated/business/customer-assignments'
-)({
-  validateSearch: customerAssignmentsSearchSchema,
-  beforeLoad: () => {
-    if (useAuthStore.getState().auth.user?.role !== USER_ROLE.ROOT) {
-      throw redirect({ to: '/403' })
-    }
-  },
-  component: CustomerAssignmentsPage,
-})
+export type SalesAccountProfilePayload = {
+  department: string
+  region: string
+  note: string
+}
+
+export type SalesAccountPage = {
+  items?: SalesAccount[]
+  total?: number
+}
