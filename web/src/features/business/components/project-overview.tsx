@@ -157,29 +157,40 @@ export function ProjectOverview() {
             {t('Review project budgets and safeguard thresholds by customer.')}
           </CardDescription>
         </div>
-        <Select
-          items={companyItems.map((company) => ({
-            value: String(company.id),
-            label: company.name,
-          }))}
-          value={selectedCompanyId === null ? null : String(selectedCompanyId)}
-          onValueChange={(value) => {
-            if (value) setSelectedCompanyId(Number(value))
-          }}
-        >
-          <SelectTrigger className='w-full sm:w-64'>
-            <SelectValue placeholder={t('Select an enterprise customer')} />
-          </SelectTrigger>
-          <SelectContent alignItemWithTrigger={false}>
-            <SelectGroup>
-              {companyItems.map((company) => (
-                <SelectItem key={company.id} value={String(company.id)}>
-                  {company.name}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+        <div className='flex flex-wrap items-center gap-2'>
+          <Select
+            items={companyItems.map((company) => ({
+              value: String(company.id),
+              label: company.name,
+            }))}
+            value={selectedCompanyId === null ? null : String(selectedCompanyId)}
+            onValueChange={(value) => {
+              if (value) setSelectedCompanyId(Number(value))
+            }}
+          >
+            <SelectTrigger className='w-full sm:w-64'>
+              <SelectValue placeholder={t('Select an enterprise customer')} />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {companyItems.map((company) => (
+                  <SelectItem key={company.id} value={String(company.id)}>
+                    {company.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          {selectedCompanyId !== null && (
+            <Button
+              type='button'
+              size='sm'
+              onClick={() => setCreateOpen(true)}
+            >
+              {t('Create project')}
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         {projectsQuery.isLoading && (

@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1110,38 +1111,190 @@ func SaveSalesAccountProfile(profile *SalesAccountProfile, actor BusinessActor) 
 	if profile == nil || profile.UserId <= 0 || !actor.valid() {
 		return errors.New("sales account and actor are required")
 	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		return SaveSalesAccountProfileInTx(tx, profile, actor)
+	})
+}
+
+// SaveSalesAccountProfileInTx creates or updates a sales account profile inside
+// an existing transaction so account creation and profile setup commit
+// atomically.
+func SaveSalesAccountProfileInTx(tx *gorm.DB, profile *SalesAccountProfile, actor BusinessActor) error {
+	if profile == nil || profile.UserId <= 0 || !actor.valid() {
+		return errors.New("sales account and actor are required")
+	}
 	profile.Department = strings.TrimSpace(profile.Department)
 	profile.Region = strings.TrimSpace(profile.Region)
 	profile.Note = strings.TrimSpace(profile.Note)
 	if len(profile.Department) > 128 || len(profile.Region) > 128 {
 		return errors.New("sales account department and region must be at most 128 characters")
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
-		var user User
-		if err := tx.First(&user, profile.UserId).Error; err != nil {
+	var user User
+	if err := tx.First(&user, profile.UserId).Error; err != nil {
+		return err
+	}
+	var previous SalesAccountProfile
+	err := tx.Where("user_id = ?", profile.UserId).First(&previous).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if err := tx.Create(profile).Error; err != nil {
 			return err
 		}
-		var previous SalesAccountProfile
-		err := tx.Where("user_id = ?", profile.UserId).First(&previous).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			if err := tx.Create(profile).Error; err != nil {
-				return err
-			}
-			return createBusinessAuditEvent(tx, actor, "sales.account.profile.create", "user", profile.UserId, "sales account profile created", nil, profile)
+		return createBusinessAuditEvent(tx, actor, "sales.account.profile.create", "user", profile.UserId, "sales account profile created", nil, profile)
+	}
+	if err != nil {
+		return err
+	}
+	profile.Id = previous.Id
+	if err := tx.Model(&SalesAccountProfile{}).Where("id = ?", previous.Id).Updates(map[string]interface{}{
+		"department": profile.Department,
+		"region":     profile.Region,
+		"note":       profile.Note,
+	}).Error; err != nil {
+		return err
+	}
+	return createBusinessAuditEvent(tx, actor, "sales.account.profile.update", "user", profile.UserId, "sales account profile updated", previous, profile)
+}
+
+// SalesAccountRecord is the admin-facing sales account list row. It joins the
+// ordinary user record with its optional commercial profile and the number of
+// companies currently owned by the account.
+type SalesAccountRecord struct {
+	UserID        int    `json:"user_id"`
+	Username      string `json:"username"`
+	DisplayName   string `json:"display_name"`
+	Status        int    `json:"status"`
+	Department    string `json:"department"`
+	Region        string `json:"region"`
+	Note          string `json:"note"`
+	CustomerCount int    `json:"customer_count"`
+	CreatedAt     int64  `json:"created_at"`
+}
+
+// ListSalesAccounts returns sales accounts (users carrying roleSubject or a
+// sales account profile) with their profile fields and active customer count.
+// roleSubject avoids importing the authorization package into the model layer.
+func ListSalesAccounts(roleSubject string, startIdx, pageSize int) ([]*SalesAccountRecord, int64, error) {
+	idSet := make(map[int]struct{})
+	roleSubjects := make([]string, 0)
+	if err := DB.Model(&CasbinRule{}).
+		Where("ptype = ? AND v1 = ?", "g", roleSubject).
+		Pluck("v0", &roleSubjects).Error; err != nil {
+		return nil, 0, err
+	}
+	for _, subject := range roleSubjects {
+		id, err := parseUserSubjectID(subject)
+		if err == nil {
+			idSet[id] = struct{}{}
 		}
-		if err != nil {
-			return err
+	}
+	profileUserIDs := make([]int, 0)
+	if err := DB.Model(&SalesAccountProfile{}).Pluck("user_id", &profileUserIDs).Error; err != nil {
+		return nil, 0, err
+	}
+	for _, id := range profileUserIDs {
+		if id > 0 {
+			idSet[id] = struct{}{}
 		}
-		profile.Id = previous.Id
-		if err := tx.Model(&SalesAccountProfile{}).Where("id = ?", previous.Id).Updates(map[string]interface{}{
-			"department": profile.Department,
-			"region":     profile.Region,
-			"note":       profile.Note,
-		}).Error; err != nil {
-			return err
+	}
+	if len(idSet) == 0 {
+		return make([]*SalesAccountRecord, 0), 0, nil
+	}
+	ids := make([]int, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+
+	users := make([]*User, 0, len(ids))
+	if err := DB.Select("id", "username", "display_name", "status", "created_at").Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, 0, err
+	}
+	userByID := make(map[int]*User, len(users))
+	for _, user := range users {
+		userByID[user.Id] = user
+	}
+
+	profiles := make([]*SalesAccountProfile, 0)
+	if err := DB.Where("user_id IN ?", ids).Find(&profiles).Error; err != nil {
+		return nil, 0, err
+	}
+	profileByUser := make(map[int]*SalesAccountProfile, len(profiles))
+	for _, profile := range profiles {
+		profileByUser[profile.UserId] = profile
+	}
+
+	type customerCountRow struct {
+		SalesUserId int
+		C           int
+	}
+	countRows := make([]customerCountRow, 0)
+	if err := DB.Model(&CustomerAssignment{}).
+		Select("sales_user_id, COUNT(*) AS c").
+		Where("sales_user_id IN ? AND active = ?", ids, true).
+		Group("sales_user_id").Scan(&countRows).Error; err != nil {
+		return nil, 0, err
+	}
+	countBySales := make(map[int]int, len(countRows))
+	for _, row := range countRows {
+		countBySales[row.SalesUserId] = row.C
+	}
+
+	records := make([]*SalesAccountRecord, 0, len(ids))
+	for _, id := range ids {
+		user, ok := userByID[id]
+		if !ok {
+			continue
 		}
-		return createBusinessAuditEvent(tx, actor, "sales.account.profile.update", "user", profile.UserId, "sales account profile updated", previous, profile)
-	})
+		record := &SalesAccountRecord{
+			UserID:        user.Id,
+			Username:      user.Username,
+			DisplayName:   user.DisplayName,
+			Status:        user.Status,
+			CustomerCount: countBySales[id],
+			CreatedAt:     user.CreatedAt,
+		}
+		if profile := profileByUser[id]; profile != nil {
+			record.Department = profile.Department
+			record.Region = profile.Region
+			record.Note = profile.Note
+		}
+		records = append(records, record)
+	}
+	// Newest accounts first.
+	sort.Slice(records, func(i, j int) bool { return records[i].UserID > records[j].UserID })
+
+	total := int64(len(records))
+	startIdx = clampPageStart(startIdx, len(records))
+	endIdx := startIdx + pageSize
+	if endIdx > len(records) {
+		endIdx = len(records)
+	}
+	if startIdx > endIdx {
+		startIdx = endIdx
+	}
+	return records[startIdx:endIdx], total, nil
+}
+
+func parseUserSubjectID(subject string) (int, error) {
+	const prefix = "user:"
+	if !strings.HasPrefix(subject, prefix) {
+		return 0, fmt.Errorf("not a user subject")
+	}
+	id, err := strconv.Atoi(strings.TrimPrefix(subject, prefix))
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("invalid user subject")
+	}
+	return id, nil
+}
+
+func clampPageStart(startIdx, length int) int {
+	if startIdx < 0 {
+		return 0
+	}
+	if startIdx > length {
+		return length
+	}
+	return startIdx
 }
 
 type BalanceLedgerFilter struct {

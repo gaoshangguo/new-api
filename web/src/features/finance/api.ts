@@ -129,3 +129,21 @@ export async function exportSalesCustomerConsumptions(
   )
   return response.data
 }
+
+// Distinct model names available for the customer export filters. Only reachable
+// through the sales-scoped endpoint so a sales user can never enumerate models
+// of customers outside their ownership.
+export async function getSalesCustomerExportModelOptions(
+  companyId: number
+): Promise<string[]> {
+  const response = await api.get<{
+    success: boolean
+    message?: string
+    data?: { models?: string[] }
+  }>(`/api/business/sales/customers/${companyId}/export-model-options`)
+  const body = response.data
+  if (!body.success) {
+    throw new Error(body.message || 'Failed to load export model options')
+  }
+  return body.data?.models ?? []
+}

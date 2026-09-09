@@ -992,6 +992,107 @@ func SetSalesAccountStatus(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"user_id": userID, "status": input.Status})
 }
 
+func ListSalesAccounts(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	accounts, total, err := model.ListSalesAccounts(
+		authz.RoleSubject(authz.BusinessRoleSalesSupervisor),
+		pageInfo.GetStartIdx(),
+		pageInfo.GetPageSize(),
+	)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	businessPageSuccess(c, accounts, total)
+}
+
+// CreateSalesAccount provisions an ordinary user, grants it the sales
+// supervisor business role, and stores the commercial profile in one
+// transaction so an account never exists half-configured.
+func CreateSalesAccount(c *gin.Context) {
+	var input struct {
+		Username    string `json:"username"`
+		Password    string `json:"password"`
+		DisplayName string `json:"display_name"`
+		Email       string `json:"email"`
+		Department  string `json:"department"`
+		Region      string `json:"region"`
+		Note        string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	input.Username = strings.TrimSpace(input.Username)
+	if input.Username == "" || input.Password == "" {
+		common.ApiError(c, errors.New("username and password are required"))
+		return
+	}
+	if input.DisplayName == "" {
+		input.DisplayName = input.Username
+	}
+	user := model.User{
+		Username:    input.Username,
+		Password:    input.Password,
+		DisplayName: input.DisplayName,
+		Email:       input.Email,
+		Role:        common.RoleCommonUser,
+	}
+	if err := common.Validate.Struct(&user); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	actor := businessAuditActor(c)
+	createdID := 0
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := user.InsertWithTx(tx, 0); err != nil {
+			return err
+		}
+		createdID = user.Id
+		if err := authz.SetUserBusinessRolesInTx(tx, createdID, []string{authz.BusinessRoleSalesSupervisor}); err != nil {
+			return err
+		}
+		profile := model.SalesAccountProfile{
+			UserId:     createdID,
+			Department: input.Department,
+			Region:     input.Region,
+			Note:       input.Note,
+		}
+		return model.SaveSalesAccountProfileInTx(tx, &profile, actor)
+	}); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	user.FinishInsert(0)
+	if err := authz.ReloadPolicy(); err != nil {
+		common.SysError("failed to reload authorization policy after sales account creation: " + err.Error())
+	}
+	recordManageAuditFor(c, createdID, "sales.account.create", map[string]interface{}{"username": user.Username})
+	common.ApiSuccess(c, gin.H{"user_id": createdID})
+}
+
+// ListSalesAccountCustomers returns the active enterprise customers owned by
+// one sales account. Root can inspect any account; the data itself is the same
+// narrow company projection the sales workspace uses.
+func ListSalesAccountCustomers(c *gin.Context) {
+	salesUserID, err := businessPathID(c, "id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := requireSalesSupervisor(salesUserID); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	companies, total, err := model.ListSalesCompanies(salesUserID, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	businessPageSuccess(c, companies, total)
+}
+
 func GetSalesCustomerSummary(c *gin.Context) {
 	company, err := scopedSalesCompany(c)
 	if err != nil {
@@ -1150,6 +1251,23 @@ func ExportSalesCustomerConsumption(c *gin.Context) {
 		"rows":       len(records),
 	})
 	writeBusinessConsumptionCSV(c, records)
+}
+
+// GetSalesCustomerExportModelOptions returns the distinct model names a sales
+// user may filter on when exporting the customer ledger or consumption. It is
+// company-scoped like every other sales customer endpoint.
+func GetSalesCustomerExportModelOptions(c *gin.Context) {
+	company, err := scopedSalesCompany(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	models, err := model.ListCompanyConsumptionModelNames(company.Id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"company_id": company.Id, "models": models})
 }
 
 func ListSalesCustomerFollowUps(c *gin.Context) {

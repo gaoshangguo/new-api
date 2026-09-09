@@ -58,6 +58,23 @@ export async function getSalesCustomerLogs(
   return getBusinessItems(responseData(response.data))
 }
 
+export async function getSalesCustomerLogsPage(
+  companyId: number,
+  params: {
+    p?: number
+    page_size?: number
+    start_at?: number
+    end_at?: number
+  }
+): Promise<{ items: SalesUsageLog[]; total: number }> {
+  const response = await api.get<ApiResponse<BusinessPage<SalesUsageLog>>>(
+    `/api/business/sales/customers/${companyId}/logs`,
+    { params: { p: 1, page_size: 20, ...params } }
+  )
+  const data = responseData(response.data)
+  return { items: getBusinessItems(data), total: data.total ?? 0 }
+}
+
 export async function getSalesCustomerFollowUps(
   companyId: number
 ): Promise<BusinessFollowUp[]> {

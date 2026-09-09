@@ -34,9 +34,12 @@ func registerBusinessRoutes(apiRouter *gin.RouterGroup) {
 
 		businessRoute.GET("/role-assignments/:user_id", middleware.RootAuth(), controller.GetUserBusinessRoles)
 		businessRoute.PUT("/role-assignments/:user_id", middleware.RootAuth(), controller.SetUserBusinessRoles)
+		businessRoute.GET("/sales/accounts", middleware.RootAuth(), controller.ListSalesAccounts)
+		businessRoute.POST("/sales/accounts", middleware.RootAuth(), controller.CreateSalesAccount)
 		businessRoute.GET("/sales/accounts/:id", middleware.RootAuth(), controller.GetSalesAccountProfile)
 		businessRoute.PUT("/sales/accounts/:id", middleware.RootAuth(), controller.SaveSalesAccountProfile)
 		businessRoute.PUT("/sales/accounts/:id/status", middleware.RootAuth(), controller.SetSalesAccountStatus)
+		businessRoute.GET("/sales/accounts/:id/customers", middleware.RootAuth(), controller.ListSalesAccountCustomers)
 
 		companyRoute := businessRoute.Group("/companies")
 		{
@@ -85,6 +88,7 @@ func registerBusinessRoutes(apiRouter *gin.RouterGroup) {
 			salesRoute.GET("/customers", controller.ListSalesCustomers)
 			salesRoute.GET("/customers/:id/summary", controller.GetSalesCustomerSummary)
 			salesRoute.GET("/customers/:id/logs", controller.GetSalesCustomerLogs)
+			salesRoute.GET("/customers/:id/export-model-options", controller.GetSalesCustomerExportModelOptions)
 			salesRoute.GET("/customers/:id/ledger/export", controller.ExportSalesCustomerLedger)
 			salesRoute.GET("/customers/:id/consumption/export", controller.ExportSalesCustomerConsumption)
 			salesRoute.GET("/customers/:id/projects", controller.GetSalesCustomerProjects)

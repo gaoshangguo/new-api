@@ -144,6 +144,18 @@ export function useSidebarData(): SidebarData {
                   activeUrls: ['/business', '/business/'],
                   icon: BriefcaseBusiness,
                 },
+                {
+                  title: t('Sales accounts'),
+                  url: '/business/sales-accounts',
+                  icon: User,
+                  requiredRole: ROLE.SUPER_ADMIN,
+                },
+                {
+                  title: t('Customer assignment'),
+                  url: '/business/customer-assignments',
+                  icon: Users,
+                  requiredRole: ROLE.SUPER_ADMIN,
+                },
               ],
             },
           ]
