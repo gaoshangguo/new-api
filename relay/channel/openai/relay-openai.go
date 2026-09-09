@@ -294,11 +294,13 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	// is forcing a re-format, the response body must carry the derived
 	// prompt_cache_hit_tokens / prompt_cache_miss_tokens. With the default
 	// passthrough the upstream body is relayed verbatim, so the derived fields
-	// cannot be injected without re-marshaling the whole payload — acceptable,
-	// since the upstream that lacks the KV cache fields is the one whose body
-	// is passed through unchanged.
-	if info.ChannelType == constant.ChannelTypeDeepSeek &&
-		(usageModified || forceFormat) &&
+	// cannot be injected without re-marshaling the whole payload.
+	//
+	// We always re-marshal for DeepSeek and Tencent (tokenhub hosts DeepSeek
+	// models and reports cached_tokens without the prompt_cache_* fields) when
+	// the derived cache fields are non-zero, even when the upstream usage was
+	// passed through unchanged, so callers get the DeepSeek-standard fields.
+	if (info.ChannelType == constant.ChannelTypeDeepSeek || info.ChannelType == constant.ChannelTypeTencent) &&
 		(simpleResponse.Usage.PromptCacheHitTokens != 0 || simpleResponse.Usage.PromptCacheMissTokens != 0) {
 		usageModified = true
 	}
