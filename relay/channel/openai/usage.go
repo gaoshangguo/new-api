@@ -30,6 +30,19 @@ func applyUsagePostProcessing(info *relaycommon.RelayInfo, usage *dto.Usage, res
 			usage.PromptCacheHitTokens = cached
 			usage.PromptCacheMissTokens = usage.PromptTokens - cached
 		}
+	case constant.ChannelTypeTencent:
+		// Tencent tokenhub hosts DeepSeek models and reports cache hits only as
+		// prompt_tokens_details.cached_tokens, without the DeepSeek-standard
+		// prompt_cache_hit_tokens / prompt_cache_miss_tokens. Derive them here so
+		// both Tencent and native DeepSeek channels expose the same fields.
+		if usage.PromptCacheMissTokens == 0 && usage.PromptTokens > 0 && usage.PromptTokensDetails.CachedTokens >= 0 {
+			cached := usage.PromptTokensDetails.CachedTokens
+			if cached > usage.PromptTokens {
+				cached = usage.PromptTokens
+			}
+			usage.PromptCacheHitTokens = cached
+			usage.PromptCacheMissTokens = usage.PromptTokens - cached
+		}
 	case constant.ChannelTypeZhipu_v4:
 		// 智普的cached_tokens在标准位置: usage.prompt_tokens_details.cached_tokens
 		if usage.PromptTokensDetails.CachedTokens == 0 {
