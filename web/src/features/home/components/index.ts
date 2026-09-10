@@ -16,10 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+export { AnnouncementBanner } from './sections/announcement-banner'
 export { CTA } from './sections/cta'
+export { FAQ } from './sections/faq'
 export { Features } from './sections/features'
 export { Hero } from './sections/hero'
 export { HowItWorks } from './sections/how-it-works'
+export { ModelsMarquee } from './sections/models-marquee'
 export { PlatformStatus } from './sections/platform-status'
+export { Pricing } from './sections/pricing'
 export { Stats } from './sections/stats'
 export { WebsiteDetails } from './sections/website-details'
