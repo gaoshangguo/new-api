@@ -81,22 +81,10 @@ export function Hero(props: HeroProps) {
 
   return (
     <section className='relative z-10 overflow-hidden px-6 pt-24 pb-16 md:pt-32 md:pb-24 lg:pt-36 lg:pb-28'>
-      {/* Radial gradient background */}
+      {/* Subtle grid pattern — the reference keeps the canvas otherwise clean. */}
       <div
         aria-hidden
-        className='pointer-events-none absolute inset-0 -z-10 opacity-25 dark:opacity-[0.12]'
-        style={{
-          background: [
-            'radial-gradient(ellipse 60% 50% at 20% 20%, oklch(0.72 0.18 250 / 80%) 0%, transparent 70%)',
-            'radial-gradient(ellipse 50% 40% at 80% 15%, oklch(0.65 0.15 200 / 60%) 0%, transparent 70%)',
-            'radial-gradient(ellipse 40% 35% at 40% 80%, oklch(0.70 0.12 280 / 40%) 0%, transparent 70%)',
-          ].join(', '),
-        }}
-      />
-      {/* Grid pattern */}
-      <div
-        aria-hidden
-        className='absolute inset-0 -z-10 bg-[linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_30%,black_20%,transparent_100%)] bg-[size:4rem_4rem] opacity-[0.08]'
+        className='absolute inset-0 -z-10 bg-[linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_30%,black_20%,transparent_100%)] bg-[size:4rem_4rem] opacity-[0.05]'
       />
 
       <div className='mx-auto grid max-w-6xl grid-cols-1 items-start gap-12 lg:grid-cols-12 lg:gap-8'>
@@ -104,12 +92,12 @@ export function Hero(props: HeroProps) {
         <div className='flex flex-col items-start text-left lg:col-span-6'>
           {/* Top Pill Badge */}
           <div
-            className='landing-animate-fade-up mb-5 inline-flex items-center gap-1.5 rounded-full border border-blue-500/20 bg-blue-500/5 px-3 py-1.5 text-[11px] font-medium text-blue-600 opacity-0 shadow-xs dark:border-blue-400/20 dark:bg-blue-400/5 dark:text-blue-400'
+            className='landing-animate-fade-up mb-5 inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-[11px] font-medium text-primary opacity-0 shadow-xs'
             style={{ animationDelay: '0ms' }}
           >
             <span className='relative flex size-1.5'>
-              <span className='absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75' />
-              <span className='relative inline-flex size-1.5 rounded-full bg-blue-500 dark:bg-blue-400' />
+              <span className='absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-75' />
+              <span className='relative inline-flex size-1.5 rounded-full bg-primary' />
             </span>
             <span>{t('Enterprise-grade AI infrastructure')}</span>
           </div>
@@ -118,9 +106,7 @@ export function Hero(props: HeroProps) {
             className='landing-animate-fade-up text-[clamp(2.25rem,4.5vw,3.25rem)] leading-[1.15] font-bold tracking-tight'
             style={{ animationDelay: '60ms' }}
           >
-            <span className='bg-gradient-to-r from-blue-400 via-violet-400 to-purple-500 bg-clip-text text-transparent'>
-              {t('One-stop AI Model Token Aggregation Platform')}
-            </span>
+            {t('One-stop AI Model Token Aggregation Platform')}
           </h1>
           <p
             className='landing-animate-fade-up text-muted-foreground/80 mt-5 max-w-xl text-base leading-relaxed opacity-0 md:text-[15px]'
@@ -214,7 +200,7 @@ export function Hero(props: HeroProps) {
                 />
                 <span
                   style={{ display: 'none' }}
-                  className='size-6 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-[10px] font-bold text-blue-600 dark:bg-blue-400/10 dark:text-blue-400'
+                  className='size-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-[10px] font-bold text-primary'
                 >
                   CC
                 </span>

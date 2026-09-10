@@ -147,7 +147,7 @@ export function About() {
 
   if (isUrl) {
     return (
-      <PublicLayout showMainContainer={false}>
+      <PublicLayout showMainContainer={false} showFooter={false}>
         <iframe
           src={rawContent}
           className='h-[calc(100vh-3.5rem)] w-full border-0'
@@ -160,7 +160,7 @@ export function About() {
 
   if (contentIsHtml) {
     return (
-      <PublicLayout showMainContainer={false}>
+      <PublicLayout showMainContainer={false} showFooter={false}>
         <RichContent
           mode='html'
           htmlVariant='isolated'

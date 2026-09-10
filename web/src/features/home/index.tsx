@@ -20,13 +20,23 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
-import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
 import { useTheme } from '@/context/theme-provider'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { CTA, Features, Hero, PlatformStatus, Stats, WebsiteDetails } from './components'
+import {
+  AnnouncementBanner,
+  CTA,
+  FAQ,
+  Features,
+  Hero,
+  ModelsMarquee,
+  PlatformStatus,
+  Pricing,
+  Stats,
+  WebsiteDetails,
+} from './components'
 import { useHomePageContent } from './hooks'
 
 export function Home() {
@@ -60,7 +70,7 @@ export function Home() {
 
   if (!isLoaded) {
     return (
-      <PublicLayout showMainContainer={false}>
+      <PublicLayout showMainContainer={false} showFooter={false}>
         <main className='flex min-h-screen items-center justify-center'>
           <div className='text-muted-foreground'>{t('Loading...')}</div>
         </main>
@@ -71,7 +81,7 @@ export function Home() {
   if (content) {
     if (isUrl) {
       return (
-        <PublicLayout showMainContainer={false}>
+        <PublicLayout showMainContainer={false} showFooter={false}>
           {/*
             allow-top-navigation-by-user-activation: the custom home page URL is
             admin-configured (trusted); this lets its target="_top" nav/menu links
@@ -96,7 +106,7 @@ export function Home() {
 
     if (contentIsHtml) {
       return (
-        <PublicLayout showMainContainer={false}>
+        <PublicLayout showMainContainer={false} showFooter={false}>
           <RichContent
             mode='html'
             htmlVariant='isolated'
@@ -108,7 +118,7 @@ export function Home() {
     }
 
     return (
-      <PublicLayout>
+      <PublicLayout showFooter={false}>
         <div className='mx-auto max-w-6xl px-4 py-8'>
           <RichContent
             mode='markdown'
@@ -122,13 +132,16 @@ export function Home() {
 
   return (
     <PublicLayout showMainContainer={false}>
+      <AnnouncementBanner />
       <Hero isAuthenticated={isAuthenticated} />
       <Stats />
+      <ModelsMarquee />
       <Features />
       <WebsiteDetails />
+      <Pricing isAuthenticated={isAuthenticated} />
+      <FAQ />
       <PlatformStatus />
       <CTA isAuthenticated={isAuthenticated} />
-      <Footer />
     </PublicLayout>
   )
 }

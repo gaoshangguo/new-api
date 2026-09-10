@@ -17,11 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { TopNavLink } from '../types'
+import { Footer } from './footer'
 import { PublicHeader, type PublicHeaderProps } from './public-header'
 
 type PublicLayoutProps = {
   children: React.ReactNode
   showMainContainer?: boolean
+  /** Render the site footer below the page content (defaults to true). */
+  showFooter?: boolean
   navContent?: React.ReactNode
   headerProps?: Omit<PublicHeaderProps, 'navContent'>
   navLinks?: TopNavLink[]
@@ -53,6 +56,8 @@ export function PublicLayout(props: PublicLayoutProps) {
       ) : (
         props.children
       )}
+
+      {props.showFooter !== false && <Footer />}
     </div>
   )
 }

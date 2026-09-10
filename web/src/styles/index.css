@@ -429,6 +429,25 @@ For commercial licensing, please contact support@quantumnous.com
   .scroll-container:hover .animate-scroll-down {
     animation-play-state: paused;
   }
+
+  /* Horizontal marquee for the model logo strip */
+  @keyframes scroll-left {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+
+  .animate-scroll-left {
+    animation: scroll-left 45s linear infinite;
+    will-change: transform;
+  }
+
+  .marquee-container:hover .animate-scroll-left {
+    animation-play-state: paused;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -436,6 +455,7 @@ For commercial licensing, please contact support@quantumnous.com
   .animate-appear-zoom,
   .animate-scroll-up,
   .animate-scroll-down,
+  .animate-scroll-left,
   [data-slot='table'] tbody tr {
     animation: none !important;
     opacity: 1;
