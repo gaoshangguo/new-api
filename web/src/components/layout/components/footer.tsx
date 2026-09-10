@@ -48,6 +48,11 @@ const NEW_API_FOOTER_ATTRIBUTION_KEY = [
   'projectAttributionSuffix',
 ].join('.')
 
+const SECONDARY_DEVELOPMENT_PREFIX_KEY =
+  'footer.newapi.secondaryDevelopmentPrefix'
+const SECONDARY_DEVELOPMENT_SUFFIX_KEY =
+  'footer.newapi.secondaryDevelopmentSuffix'
+
 function FooterLinkItem(props: { link: FooterLink }) {
   const { t } = useTranslation()
   const isExternal = props.link.href.startsWith('http')
@@ -121,11 +126,11 @@ function LegalLinks(props: { leadingSeparator?: boolean }) {
   )
 }
 
-// inline=true returns just the inner span for composition in a parent flex
-// row. inline=false wraps in a centered/right-aligned div (default).
-function ProjectAttribution(props: { currentYear: number; inline?: boolean }) {
+// Copyright + upstream project attribution shown in the custom footer
+// (footerHtml) row next to the legal links.
+function ProjectAttribution(props: { currentYear: number }) {
   const { t } = useTranslation()
-  const content = (
+  return (
     <span className='text-footer-muted/70'>
       &copy; {props.currentYear}{' '}
       <a
@@ -138,14 +143,6 @@ function ProjectAttribution(props: { currentYear: number; inline?: boolean }) {
       </a>
       . {t(NEW_API_FOOTER_ATTRIBUTION_KEY)}
     </span>
-  )
-  if (props.inline) {
-    return content
-  }
-  return (
-    <div className='text-footer-muted/70 text-center text-xs sm:text-right'>
-      {content}
-    </div>
   )
 }
 
@@ -238,7 +235,7 @@ export function Footer(props: FooterProps) {
             />
             <div className='border-footer-border text-footer-muted/70 flex w-full flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t pt-4 text-xs sm:w-auto sm:justify-end sm:border-t-0 sm:border-l sm:pt-0 sm:pl-5'>
               <LegalLinks />
-              <ProjectAttribution currentYear={currentYear} inline />
+              <ProjectAttribution currentYear={currentYear} />
             </div>
           </div>
         </div>
@@ -293,17 +290,28 @@ export function Footer(props: FooterProps) {
           )}
         </div>
 
-        {/* Copyright + optional legal links inline on the left, project
-            attribution on the right; wraps on narrow screens. */}
-        <div className='border-footer-border mt-12 flex flex-col items-center justify-between gap-x-3 gap-y-2 border-t pt-6 sm:flex-row'>
-          <div className='text-footer-muted/70 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:justify-start'>
+        {/* Copyright + legal links centered on the first row, the
+            secondary-development attribution on the second row. */}
+        <div className='border-footer-border mt-12 flex flex-col items-center gap-y-2 border-t pt-6'>
+          <div className='text-footer-muted/70 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-xs'>
             <span>
               &copy; {currentYear} {displayName}.{' '}
               {props.copyright ?? t('footer.defaultCopyright')}
             </span>
             <LegalLinks leadingSeparator />
           </div>
-          <ProjectAttribution currentYear={currentYear} />
+          <p className='text-footer-muted/70 text-center text-xs'>
+            {t(SECONDARY_DEVELOPMENT_PREFIX_KEY)}{' '}
+            <a
+              href='https://github.com/QuantumNous/new-api'
+              target='_blank'
+              rel='noopener noreferrer'
+              className='text-footer-foreground/80 hover:text-footer-foreground font-medium transition-colors'
+            >
+              {t('New API')}
+            </a>
+            {t(SECONDARY_DEVELOPMENT_SUFFIX_KEY)}
+          </p>
         </div>
       </div>
     </footer>
