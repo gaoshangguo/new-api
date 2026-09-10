@@ -105,7 +105,13 @@ export function EnterpriseProfilePanel() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form ref={formRef} onSubmit={handleSave} className='flex flex-col gap-4'>
+        {/* Remount once the profile loads so uncontrolled inputs pick up their defaults. */}
+        <form
+          key={company?.id ?? 0}
+          ref={formRef}
+          onSubmit={handleSave}
+          className='flex flex-col gap-4'
+        >
           <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
             <div className='flex flex-col gap-1'>
               <Label htmlFor='company-name'>{t('Company name')} *</Label>

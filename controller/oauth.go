@@ -425,6 +425,9 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		user.FinalizeOAuthUserCreation(inviterId)
 	}
 
+	// 与密码注册保持一致：为新注册的 OAuth 用户生成默认企业并绑定归属。
+	ensureCompanyForNewUser(user, inviterId)
+
 	return user, nil
 }
 

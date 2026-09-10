@@ -1287,6 +1287,37 @@ func parseUserSubjectID(subject string) (int, error) {
 	return id, nil
 }
 
+// ListUserIDsByRoleSubject returns the IDs of existing users bound to a role
+// subject through Casbin "g" rules, ordered by user ID. Business provisioning
+// uses it to resolve a default owner without importing the authorization
+// package into the model layer.
+func ListUserIDsByRoleSubject(roleSubject string) ([]int, error) {
+	roleSubject = strings.TrimSpace(roleSubject)
+	if roleSubject == "" {
+		return nil, errors.New("role subject is required")
+	}
+	subjects := make([]string, 0)
+	if err := DB.Model(&CasbinRule{}).
+		Where("ptype = ? AND v1 = ?", "g", roleSubject).
+		Pluck("v0", &subjects).Error; err != nil {
+		return nil, err
+	}
+	candidates := make([]int, 0, len(subjects))
+	for _, subject := range subjects {
+		if id, err := parseUserSubjectID(subject); err == nil {
+			candidates = append(candidates, id)
+		}
+	}
+	if len(candidates) == 0 {
+		return []int{}, nil
+	}
+	userIDs := make([]int, 0, len(candidates))
+	if err := DB.Model(&User{}).Where("id IN ?", candidates).Order("id ASC").Pluck("id", &userIDs).Error; err != nil {
+		return nil, err
+	}
+	return userIDs, nil
+}
+
 func clampPageStart(startIdx, length int) int {
 	if startIdx < 0 {
 		return 0
@@ -1522,9 +1553,8 @@ func GetBusinessProject(projectID int) (*BusinessProject, error) {
 	return &project, nil
 }
 
-// IsCompanyOwner reports whether a balance account is attached to an enterprise
-// profile. Enterprise balance changes must use the reviewed finance workflow
-// instead of legacy direct-admin quota operations.
+// IsCompanyOwner reports whether a balance account is attached to an
+// enterprise profile.
 func IsCompanyOwner(userID int) (bool, error) {
 	if userID <= 0 {
 		return false, nil

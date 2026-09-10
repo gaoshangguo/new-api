@@ -101,6 +101,9 @@ func WeChatAuth(c *gin.Context) {
 				})
 				return
 			}
+
+			// 与密码注册保持一致：生成默认企业并绑定归属。
+			ensureCompanyForNewUser(&user, 0)
 		} else {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
