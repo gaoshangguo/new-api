@@ -32,7 +32,7 @@ func setupManageUserTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	model.DB, model.LOG_DB = db, db
 	require.NoError(t, db.AutoMigrate(
-		&model.User{}, &model.UserSession{}, &model.Log{}, &model.CasbinRule{}, &model.AuthzRole{},
+		&model.User{}, &model.UserSession{}, &model.Log{}, &model.CasbinRule{}, &model.AuthzRole{}, &model.Company{},
 	))
 
 	t.Cleanup(func() {
@@ -158,4 +158,23 @@ func TestManageUserDeleteReturnsImmediatelyAndUnknownActionFails(t *testing.T) {
 	require.NoError(t, db.First(&unchanged, unchanged.Id).Error)
 	assert.EqualValues(t, 1, unchanged.AuthVersion)
 	assert.Equal(t, common.UserStatusEnabled, unchanged.Status)
+}
+
+// 企业客户也允许后台直接调额度（防止财务流程强制拦截逻辑回归）。
+func TestManageUserAdjustsQuotaForCompanyOwner(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	owner := model.User{
+		Username: "enterprise-owner", Password: "password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1, AffCode: "enterprise-owner-aff",
+	}
+	require.NoError(t, db.Create(&owner).Error)
+	require.NoError(t, db.Create(&model.Company{Name: "Owner Enterprise", OwnerUserId: owner.Id}).Error)
+
+	recorder := performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":"add","value":250}`, owner.Id))
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+
+	var updated model.User
+	require.NoError(t, db.First(&updated, owner.Id).Error)
+	assert.Equal(t, 250, updated.Quota)
 }

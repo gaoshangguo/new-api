@@ -377,6 +377,9 @@ func Register(c *gin.Context) {
 		}
 	}
 
+	// 注册成功后自动生成默认企业并绑定归属；失败只记日志，不阻断注册。
+	ensureCompanyForNewUser(&insertedUser, inviterId)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -1224,15 +1227,7 @@ func ManageUser(c *gin.Context) {
 		}
 		user.Role = common.RoleCommonUser
 	case "add_quota":
-		isCompanyOwner, err := model.IsCompanyOwner(user.Id)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		if isCompanyOwner {
-			common.ApiError(c, errors.New("enterprise balance changes must use the reviewed finance workflow"))
-			return
-		}
+		// 企业客户也允许后台直接调额度，不强制走财务调整单流程。
 		switch req.Mode {
 		case "add":
 			if req.Value <= 0 {

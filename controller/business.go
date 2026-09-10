@@ -877,6 +877,53 @@ func isSalesSupervisorUser(userID int) (bool, error) {
 	return false, nil
 }
 
+// resolveDefaultCompanySalesOwner picks the owner that receives auto-created
+// companies: an inviting sales supervisor keeps their invited customer,
+// otherwise the oldest platform manager account is the platform default owner.
+func resolveDefaultCompanySalesOwner(inviterId int) (int, error) {
+	invitedBySales, err := isSalesSupervisorUser(inviterId)
+	if err != nil {
+		return 0, err
+	}
+	if invitedBySales {
+		return inviterId, nil
+	}
+	platformManagers, err := model.ListUserIDsByRoleSubject(authz.RoleSubject(authz.BusinessRolePlatformManager))
+	if err != nil {
+		return 0, err
+	}
+	if len(platformManagers) == 0 {
+		return 0, errors.New("no platform manager account is available for default company ownership")
+	}
+	return platformManagers[0], nil
+}
+
+// ensureCompanyForNewUser provisions the default enterprise profile for a
+// freshly registered account and records its customer ownership, so platform
+// and sales views can follow the customer from registration. Provisioning is
+// best-effort: failures are logged and never block registration.
+func ensureCompanyForNewUser(user *model.User, inviterId int) {
+	if user == nil || user.Id <= 0 {
+		return
+	}
+	if !common.GetEnvOrDefaultBool("BUSINESS_AUTO_COMPANY_ON_REGISTER", true) {
+		return
+	}
+	ownerUserID, err := resolveDefaultCompanySalesOwner(inviterId)
+	if err != nil {
+		common.SysError(fmt.Sprintf("skipped default company provisioning for user %d: %v", user.Id, err))
+		return
+	}
+	company := model.Company{
+		Name:        fmt.Sprintf("%s的企业", user.Username),
+		OwnerUserId: user.Id,
+	}
+	actor := model.BusinessActor{UserId: user.Id, Username: user.Username, RoleSnapshot: "system:registration"}
+	if err := model.CreateCompanyWithSalesAssignment(&company, ownerUserID, "auto company on registration", actor); err != nil {
+		common.SysError(fmt.Sprintf("failed to provision default company for user %d: %v", user.Id, err))
+	}
+}
+
 func ListCustomerAssignments(c *gin.Context) {
 	companyID, err := businessQueryID(c, "company_id")
 	if err != nil {
