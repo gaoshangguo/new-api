@@ -16,11 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import React, { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import React, { useMemo, useState } from 'react'
 
+import {
+  SALES_ACCOUNTS_QUERY_KEY,
+  getSalesAccounts,
+} from '@/features/sales-accounts/api'
 import useDialogState from '@/hooks/use-dialog'
+import { useAuthStore } from '@/stores/auth-store'
 
-import { type User, type UsersDialogType } from '../types'
+import { USER_ROLE } from '../constants'
+import type { User, UsersDialogType } from '../types'
 
 type UsersContextType = {
   open: UsersDialogType | null
@@ -29,6 +36,7 @@ type UsersContextType = {
   setCurrentRow: React.Dispatch<React.SetStateAction<User | null>>
   refreshTrigger: number
   triggerRefresh: () => void
+  salesAccountUserIds: Set<number>
 }
 
 const UsersContext = React.createContext<UsersContextType | null>(null)
@@ -37,6 +45,19 @@ export function UsersProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useDialogState<UsersDialogType>(null)
   const [currentRow, setCurrentRow] = useState<User | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
+
+  const currentUser = useAuthStore((s) => s.auth.user)
+  const isRoot = currentUser?.role === USER_ROLE.ROOT
+  // 只有 Root 能设置销售账号，其他角色不请求该接口。
+  const { data: salesAccounts = [] } = useQuery({
+    queryKey: SALES_ACCOUNTS_QUERY_KEY,
+    queryFn: getSalesAccounts,
+    enabled: isRoot,
+  })
+  const salesAccountUserIds = useMemo(
+    () => new Set(salesAccounts.map((account) => account.user_id)),
+    [salesAccounts]
+  )
 
   const triggerRefresh = () => setRefreshTrigger((prev) => prev + 1)
 
@@ -49,6 +70,7 @@ export function UsersProvider({ children }: { children: React.ReactNode }) {
         setCurrentRow,
         refreshTrigger,
         triggerRefresh,
+        salesAccountUserIds,
       }}
     >
       {children}

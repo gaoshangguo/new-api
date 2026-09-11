@@ -1118,6 +1118,78 @@ func CreateSalesAccount(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"user_id": createdID})
 }
 
+// PromoteUserToSalesAccount designates an existing ordinary user as a sales
+// account: it grants the sales supervisor business role (keeping any other
+// business roles) and stores the commercial profile in one transaction. Root
+// operators use it from user management so an existing login does not need a
+// duplicate account.
+func PromoteUserToSalesAccount(c *gin.Context) {
+	var input struct {
+		UserId     int    `json:"user_id"`
+		Department string `json:"department"`
+		Region     string `json:"region"`
+		Note       string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if input.UserId <= 0 {
+		common.ApiError(c, errors.New("user_id is required"))
+		return
+	}
+	user, err := model.GetUserById(input.UserId, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if user.Role != common.RoleCommonUser {
+		common.ApiError(c, errors.New("sales accounts must be ordinary users"))
+		return
+	}
+	actor := businessAuditActor(c)
+	var previousRoles []string
+	var assignedRoles []string
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		previousRoles, err = authz.UserBusinessRoles(tx, user.Id)
+		if err != nil {
+			return err
+		}
+		for _, role := range previousRoles {
+			if role == authz.BusinessRoleSalesSupervisor {
+				return errors.New("user is already a sales account")
+			}
+		}
+		roles := append(append([]string{}, previousRoles...), authz.BusinessRoleSalesSupervisor)
+		if err := authz.SetUserBusinessRolesInTx(tx, user.Id, roles); err != nil {
+			return err
+		}
+		assignedRoles, err = authz.UserBusinessRoles(tx, user.Id)
+		if err != nil {
+			return err
+		}
+		profile := model.SalesAccountProfile{
+			UserId:     user.Id,
+			Department: input.Department,
+			Region:     input.Region,
+			Note:       input.Note,
+		}
+		if err := model.SaveSalesAccountProfileInTx(tx, &profile, actor); err != nil {
+			return err
+		}
+		return model.RecordBusinessAuditEventInTx(tx, actor, "sales.account.promote", "user", user.Id, "existing user set as sales account", previousRoles, assignedRoles)
+	}); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := authz.ReloadPolicy(); err != nil {
+		common.SysError("failed to reload authorization policy after sales account promotion: " + err.Error())
+	}
+	recordManageAuditFor(c, user.Id, "sales.account.promote", map[string]interface{}{"username": user.Username, "before_roles": previousRoles, "roles": assignedRoles})
+	common.ApiSuccess(c, gin.H{"user_id": user.Id})
+}
+
 // ListSalesAccountCustomers returns the active enterprise customers owned by
 // one sales account. Root can inspect any account; the data itself is the same
 // narrow company projection the sales workspace uses.
