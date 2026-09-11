@@ -19,12 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { Plus, Users } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { StaticDataTable } from '@/components/data-table'
-import type { StaticDataTableColumn } from '@/components/data-table'
+import {
+  StaticDataTable,
+  type StaticDataTableColumn,
+} from '@/components/data-table'
 import { Dialog } from '@/components/dialog'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { Button } from '@/components/ui/button'
@@ -37,14 +39,13 @@ import { formatTimestamp } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import {
+  SALES_ACCOUNTS_QUERY_KEY,
   createSalesAccount,
   getSalesAccounts,
   setSalesAccountStatus,
   updateSalesAccountProfile,
 } from './api'
 import type { SalesAccount } from './types'
-
-const SALES_ACCOUNTS_QUERY_KEY = ['business', 'sales-accounts']
 
 function StatusCell({ status }: { status: number }) {
   const { t } = useTranslation()
@@ -166,6 +167,29 @@ export function SalesAccountsPage() {
     },
   ]
 
+  let content: ReactNode
+  if (isLoading) {
+    content = (
+      <div className='flex justify-center py-16'>
+        <Spinner />
+      </div>
+    )
+  } else if (accounts.length === 0) {
+    content = (
+      <Empty>
+        <EmptyTitle>{t('No sales accounts yet')}</EmptyTitle>
+      </Empty>
+    )
+  } else {
+    content = (
+      <StaticDataTable
+        data={accounts}
+        columns={columns}
+        getRowKey={(row) => row.user_id}
+      />
+    )
+  }
+
   return (
     <>
       <SectionPageLayout fixedContent>
@@ -176,23 +200,7 @@ export function SalesAccountsPage() {
             {t('New sales account')}
           </Button>
         </SectionPageLayout.Actions>
-        <SectionPageLayout.Content>
-          {isLoading ? (
-            <div className='flex justify-center py-16'>
-              <Spinner />
-            </div>
-          ) : accounts.length === 0 ? (
-            <Empty>
-              <EmptyTitle>{t('No sales accounts yet')}</EmptyTitle>
-            </Empty>
-          ) : (
-            <StaticDataTable
-              data={accounts}
-              columns={columns}
-              getRowKey={(row) => row.user_id}
-            />
-          )}
-        </SectionPageLayout.Content>
+        <SectionPageLayout.Content>{content}</SectionPageLayout.Content>
       </SectionPageLayout>
 
       <SalesAccountCreateDialog

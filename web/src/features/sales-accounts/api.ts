@@ -27,6 +27,8 @@ import type {
 
 type ApiEnvelope<T> = { success: boolean; message?: string; data?: T }
 
+export const SALES_ACCOUNTS_QUERY_KEY = ['business', 'sales-accounts'] as const
+
 export async function getSalesAccounts(): Promise<SalesAccount[]> {
   const response = await api.get<ApiEnvelope<SalesAccountPage>>(
     '/api/business/sales/accounts',
@@ -47,6 +49,19 @@ export async function createSalesAccount(
   )
   if (!response.data.success) {
     throw new Error(response.data.message || 'Failed to create sales account')
+  }
+}
+
+export async function promoteUserToSalesAccount(
+  userId: number,
+  payload: SalesAccountProfilePayload
+): Promise<void> {
+  const response = await api.post<ApiEnvelope<{ user_id: number }>>(
+    '/api/business/sales/accounts/promote',
+    { user_id: userId, ...payload }
+  )
+  if (!response.data.success) {
+    throw new Error(response.data.message || 'Failed to set sales account')
   }
 }
 

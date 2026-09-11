@@ -36,6 +36,7 @@ func registerBusinessRoutes(apiRouter *gin.RouterGroup) {
 		businessRoute.PUT("/role-assignments/:user_id", middleware.RootAuth(), controller.SetUserBusinessRoles)
 		businessRoute.GET("/sales/accounts", middleware.RootAuth(), controller.ListSalesAccounts)
 		businessRoute.POST("/sales/accounts", middleware.RootAuth(), controller.CreateSalesAccount)
+		businessRoute.POST("/sales/accounts/promote", middleware.RootAuth(), controller.PromoteUserToSalesAccount)
 		businessRoute.GET("/sales/accounts/:id", middleware.RootAuth(), controller.GetSalesAccountProfile)
 		businessRoute.PUT("/sales/accounts/:id", middleware.RootAuth(), controller.SaveSalesAccountProfile)
 		businessRoute.PUT("/sales/accounts/:id/status", middleware.RootAuth(), controller.SetSalesAccountStatus)

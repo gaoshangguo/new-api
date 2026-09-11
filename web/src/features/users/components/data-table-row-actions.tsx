@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQueryClient } from '@tanstack/react-query'
 import type { Row } from '@tanstack/react-table'
 import {
   Pencil,
@@ -28,6 +29,7 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  UserRoundCheck,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -46,7 +48,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { SALES_ACCOUNTS_QUERY_KEY } from '@/features/sales-accounts/api'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
 import {
@@ -58,6 +62,7 @@ import {
 import { getUserActionMessage } from '../lib'
 import type { User, ManageUserAction } from '../types'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
+import { UserSalesAccountDialog } from './dialogs/user-sales-account-dialog'
 import { useUsers } from './users-provider'
 
 interface DataTableRowActionsProps {
@@ -66,12 +71,16 @@ interface DataTableRowActionsProps {
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const currentUser = useAuthStore((s) => s.auth.user)
   const user = row.original
-  const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
+  const { setOpen, setCurrentRow, triggerRefresh, salesAccountUserIds } =
+    useUsers()
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [salesAccountDialogOpen, setSalesAccountDialogOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -134,6 +143,16 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const isDisabled = user.status === USER_STATUS.DISABLED
   const isAdmin = user.role >= USER_ROLE.ADMIN
   const isRoot = user.role === USER_ROLE.ROOT
+  // 只有 Root 能把已有普通用户设为销售账号；已是销售账号的不重复入口。
+  const canSetSalesAccount =
+    currentUser?.role === USER_ROLE.ROOT &&
+    user.role === USER_ROLE.USER &&
+    !salesAccountUserIds.has(user.id)
+
+  const handleSalesAccountSuccess = () => {
+    void queryClient.invalidateQueries({ queryKey: SALES_ACCOUNTS_QUERY_KEY })
+    triggerRefresh()
+  }
 
   if (isUserDeleted(user)) {
     return null
@@ -222,6 +241,20 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuShortcut>
         </DropdownMenuItem>
 
+        {canSetSalesAccount && (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault()
+              setSalesAccountDialogOpen(true)
+            }}
+          >
+            {t('Set as sales account')}
+            <DropdownMenuShortcut>
+              <UserRoundCheck size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
+
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
@@ -300,6 +333,14 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onOpenChange={setSubscriptionsDialogOpen}
         user={{ id: user.id, username: user.username }}
         onSuccess={triggerRefresh}
+      />
+
+      <UserSalesAccountDialog
+        open={salesAccountDialogOpen}
+        onOpenChange={setSalesAccountDialogOpen}
+        userId={user.id}
+        username={user.username}
+        onSuccess={handleSalesAccountSuccess}
       />
     </div>
   )
