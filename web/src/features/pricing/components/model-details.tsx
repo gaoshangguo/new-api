@@ -450,7 +450,16 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
   const groups = normalizeCatalogItems(model.enable_groups)
   const endpoints = normalizeCatalogItems(model.supported_endpoint_types)
   const tags = parseTags(model.tags)
+  const aliases = normalizeCatalogItems(model.alias_names)
   const cells: React.ReactNode[] = []
+
+  if (aliases.length > 0) {
+    cells.push(
+      <CatalogInfoCell key='aliases' label={t('Aliases')}>
+        <CatalogPillList items={aliases} />
+      </CatalogInfoCell>
+    )
+  }
 
   if (model.vendor_name) {
     cells.push(
@@ -530,6 +539,7 @@ function ModelHeader(props: { model: PricingModel }) {
   const modelIconKey = model.icon || model.vendor_icon
   const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 20) : null
   const description = model.description || model.vendor_description || null
+  const aliases = model.alias_names || []
 
   return (
     <header className='pb-4'>
@@ -554,6 +564,25 @@ function ModelHeader(props: { model: PricingModel }) {
         <span className='text-muted-foreground/30'>·</span>
         <ModelBillingModeBadge model={model} />
       </div>
+      {aliases.length > 0 && (
+        <div className='mt-2 flex flex-wrap items-center gap-1.5'>
+          <span className='text-muted-foreground text-xs'>
+            {t('Aliases')}:
+          </span>
+          {aliases.map((alias) => (
+            <CopyButton
+              key={alias}
+              value={alias}
+              size='sm'
+              tooltip={t('Copy alias name')}
+              successTooltip={t('Copied!')}
+              iconClassName='size-3'
+            >
+              <span className='font-mono'>{alias}</span>
+            </CopyButton>
+          ))}
+        </div>
+      )}
       {description && (
         <p className='text-muted-foreground mt-2 text-sm leading-relaxed'>
           {description}

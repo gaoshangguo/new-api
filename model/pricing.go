@@ -17,6 +17,7 @@ import (
 
 type Pricing struct {
 	ModelName              string                  `json:"model_name"`
+	AliasNames             []string                `json:"alias_names,omitempty"`
 	Description            string                  `json:"description,omitempty"`
 	Icon                   string                  `json:"icon,omitempty"`
 	Tags                   string                  `json:"tags,omitempty"`
@@ -356,6 +357,7 @@ func updatePricing() {
 	}
 
 	pricingMap = make([]Pricing, 0)
+	aliasByTarget := GetModelAliasesByTarget()
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
 			ModelName:              model,
@@ -373,6 +375,9 @@ func updatePricing() {
 			pricing.Icon = meta.Icon
 			pricing.Tags = meta.Tags
 			pricing.VendorID = meta.VendorID
+		}
+		if aliases, ok := aliasByTarget[model]; ok && len(aliases) > 0 {
+			pricing.AliasNames = aliases
 		}
 		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
 		if findPrice {

@@ -30,6 +30,8 @@ export type PricingVendor = {
 export type PricingModel = {
   id: number
   model_name: string
+  /** External names that resolve to this model at request time (model aliases). */
+  alias_names?: string[]
   description?: string
   icon?: string
   vendor_id?: number

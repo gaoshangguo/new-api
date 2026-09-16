@@ -136,6 +136,26 @@ func ResolveModelAlias(aliasName string) (string, ModelAliasEntry, bool, error) 
 	return entry.ModelName, entry, true, nil
 }
 
+// GetModelAliasesByTarget 反查别名：目标模型名 → 该目标的所有 active 别名。
+// 供模型列表/模型广场展示对外名使用；每次调用走内存缓存（TTL 过期自动刷新）。
+func GetModelAliasesByTarget() map[string][]string {
+	if modelAliasRefreshed.IsZero() || time.Since(modelAliasRefreshed) > modelAliasCacheTTL {
+		_ = LoadModelAliases()
+	}
+	result := make(map[string][]string)
+	for aliasName, entry := range modelAliasCache.ReadAll() {
+		if entry.Status != ModelAliasStatusActive {
+			continue
+		}
+		target := strings.TrimSpace(entry.ModelName)
+		if target == "" {
+			continue
+		}
+		result[target] = append(result[target], aliasName)
+	}
+	return result
+}
+
 // ModelAliasChannelIDs 解析别名可选的渠道限制（JSON 数组），空则不限。
 func (e ModelAliasEntry) ModelAliasChannelIDs() ([]int, error) {
 	if strings.TrimSpace(e.ChannelIds) == "" {
