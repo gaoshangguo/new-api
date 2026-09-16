@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -92,6 +93,7 @@ func GetStatus(c *gin.Context) {
 		"register_enabled":              common.RegisterEnabled,
 		"password_login_enabled":        common.PasswordLoginEnabled,
 		"password_register_enabled":     common.PasswordRegisterEnabled,
+		"captcha_enabled":               common.CaptchaEnabled,
 		"default_use_auto_group":        setting.DefaultUseAutoGroup,
 
 		"usd_exchange_rate": operation_setting.USDExchangeRate,
@@ -232,6 +234,17 @@ func GetHomePageContent(c *gin.Context) {
 		"data":    common.OptionMap["HomePageContent"],
 	})
 	return
+}
+
+// GetCaptcha 下发一次性图形验证码，供注册等匿名入口使用。
+func GetCaptcha(c *gin.Context) {
+	challenge, err := service.NewCaptchaChallenge()
+	if err != nil {
+		common.SysError("failed to generate captcha: " + err.Error())
+		common.ApiErrorI18n(c, i18n.MsgUserCaptchaGenerateFailed)
+		return
+	}
+	common.ApiSuccess(c, challenge)
 }
 
 func SendEmailVerification(c *gin.Context) {

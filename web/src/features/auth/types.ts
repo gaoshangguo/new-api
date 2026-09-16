@@ -38,6 +38,8 @@ export interface RegisterPayload {
   password: string
   email?: string
   verification_code?: string
+  captcha_id?: string
+  captcha_code?: string
   aff_code?: string
   turnstile?: string
 }
@@ -77,6 +79,13 @@ export interface Login2FAResponse {
   success: boolean
   message: string
   data?: AuthBundle
+}
+
+// One-time image captcha challenge issued by GET /api/captcha
+export interface CaptchaChallenge {
+  captcha_id: string
+  // PNG data URL, usable directly as an img src
+  image: string
 }
 
 export interface ApiResponse<T = unknown> {
@@ -134,6 +143,7 @@ export interface SystemStatus {
     register_enabled?: boolean
     password_login_enabled?: boolean
     password_register_enabled?: boolean
+    captcha_enabled?: boolean
     custom_oauth_providers?: CustomOAuthProviderInfo[]
     [key: string]: unknown
   }
@@ -179,6 +189,7 @@ export interface SystemStatus {
   register_enabled?: boolean
   password_login_enabled?: boolean
   password_register_enabled?: boolean
+  captcha_enabled?: boolean
   custom_oauth_providers?: CustomOAuthProviderInfo[]
   [key: string]: unknown
 }

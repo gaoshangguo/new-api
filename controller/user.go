@@ -273,6 +273,17 @@ func Register(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
+	// 图形验证码校验放在最前，机器人请求在触碰数据库之前就被拒绝。
+	if common.CaptchaEnabled {
+		if user.CaptchaId == "" || user.CaptchaCode == "" {
+			common.ApiErrorI18n(c, i18n.MsgUserCaptchaRequired)
+			return
+		}
+		if !service.VerifyCaptcha(user.CaptchaId, user.CaptchaCode) {
+			common.ApiErrorI18n(c, i18n.MsgUserCaptchaError)
+			return
+		}
+	}
 	if user.Phone != "" {
 		phoneTaken, err := model.IsPhoneTaken(user.Phone)
 		if err != nil {

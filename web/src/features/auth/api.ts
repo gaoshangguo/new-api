@@ -29,6 +29,7 @@ import type {
   Login2FAResponse,
   TwoFAPayload,
   RegisterPayload,
+  CaptchaChallenge,
   ApiResponse,
 } from './types'
 
@@ -185,6 +186,12 @@ export async function register(payload: RegisterPayload): Promise<ApiResponse> {
   const res = await api.post(`/api/user/register`, payload, {
     params: { turnstile: payload.turnstile ?? '' },
   })
+  return res.data
+}
+
+// Get a one-time image captcha challenge for registration
+export async function getCaptcha(): Promise<ApiResponse<CaptchaChallenge>> {
+  const res = await api.get('/api/captcha', { disableDuplicate: true })
   return res.data
 }
 
