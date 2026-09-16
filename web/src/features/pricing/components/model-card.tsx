@@ -216,6 +216,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     )
   }
 
+  const aliases = props.model.alias_names || []
+
   return (
     <div
       className={cn(
@@ -267,6 +269,34 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       <p className='text-muted-foreground mt-2 line-clamp-1 flex-1 text-[13px] leading-relaxed sm:mt-4 sm:line-clamp-2 sm:min-h-[2.5rem]'>
         {props.model.description || t('No description available.')}
       </p>
+
+      {/* Aliases: external names users can call this model with */}
+      {aliases.length > 0 && (
+        <div className='mt-2 flex flex-wrap items-center gap-1.5'>
+          <span className='text-muted-foreground/70 text-[11px]'>
+            {t('Aliases')}
+          </span>
+          {aliases.slice(0, 3).map((alias) => (
+            <button
+              key={alias}
+              type='button'
+              onClick={(e) => {
+                e.stopPropagation()
+                copyToClipboard(alias)
+              }}
+              title={t('Copy alias name')}
+              className='bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground rounded-md px-1.5 py-0.5 font-mono text-[11px] transition-colors'
+            >
+              {alias}
+            </button>
+          ))}
+          {aliases.length > 3 && (
+            <span className='text-muted-foreground/50 text-[11px]'>
+              +{aliases.length - 3}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Footer: left metadata and right performance summary share row alignment */}
       <div className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:mt-4'>

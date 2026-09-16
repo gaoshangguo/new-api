@@ -157,6 +157,30 @@ func TestModelAliasChannelIDs(t *testing.T) {
 	assert.Equal(t, []int{3, 7}, ids)
 }
 
+func TestGetModelAliasesByTargetGroupsActiveAliases(t *testing.T) {
+	setupModelAliasTest(t)
+
+	_, err := CreateModelAlias(ModelAliasCreateParams{AliasName: "fast", ModelName: "gpt-4o"})
+	require.NoError(t, err)
+	_, err = CreateModelAlias(ModelAliasCreateParams{AliasName: "turbo", ModelName: "gpt-4o"})
+	require.NoError(t, err)
+	// Deprecated aliases must not leak into the reverse lookup.
+	_, err = CreateModelAlias(ModelAliasCreateParams{
+		AliasName:   "old",
+		ModelName:   "gpt-4o",
+		Status:      ModelAliasStatusDeprecated,
+		Replacement: "gpt-5",
+	})
+	require.NoError(t, err)
+
+	byTarget := GetModelAliasesByTarget()
+	aliases, ok := byTarget["gpt-4o"]
+	require.True(t, ok)
+	assert.ElementsMatch(t, []string{"fast", "turbo"}, aliases)
+	// Unrelated target has no aliases.
+	require.NotContains(t, byTarget, "gpt-5")
+}
+
 func TestCreateModelAliasDuplicateRejected(t *testing.T) {
 	setupModelAliasTest(t)
 

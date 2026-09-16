@@ -392,6 +392,58 @@ func TestListModelsUsesAdvancedCustomEndpointTypesFromPricingCache(t *testing.T)
 	}, payload.Data[0].SupportedEndpointTypes)
 }
 
+func TestListModelsIncludesAliases(t *testing.T) {
+	withSelfUseModeEnabled(t)
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&model.User{
+		Id:       1004,
+		Username: "model-list-alias-user",
+		Password: "password",
+		Group:    "default",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "zz-aliased-model", ChannelId: 1, Enabled: true},
+	}).Error)
+	require.NoError(t, db.AutoMigrate(&model.ModelAlias{}))
+	require.NoError(t, db.Session(&gorm.Session{AllowGlobalUpdate: true, SkipHooks: true}).Delete(&model.ModelAlias{}).Error)
+	require.NoError(t, model.LoadModelAliases())
+	require.NoError(t, db.Create(&[]model.ModelAlias{
+		{AliasName: "zz-aliased-fast", ModelName: "zz-aliased-model", Status: model.ModelAliasStatusActive, Version: 1},
+		{AliasName: "zz-aliased-turbo", ModelName: "zz-aliased-model", Status: model.ModelAliasStatusActive, Version: 1},
+	}).Error)
+	require.NoError(t, model.LoadModelAliases())
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	ctx.Set("id", 1004)
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	payload := decodeListModelsPayload(t, recorder)
+	require.Len(t, payload.Data, 1)
+	require.Equal(t, "zz-aliased-model", payload.Data[0].Id)
+	assert.ElementsMatch(t, []string{"zz-aliased-fast", "zz-aliased-turbo"}, payload.Data[0].Aliases)
+
+	// Non-aliased models keep an empty aliases field.
+	require.NoError(t, db.Create(&model.Ability{
+		Group: "default", Model: "zz-plain-model", ChannelId: 2, Enabled: true,
+	}).Error)
+	plainRecorder := httptest.NewRecorder()
+	plainCtx, _ := gin.CreateTestContext(plainRecorder)
+	plainCtx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	plainCtx.Set("id", 1004)
+	ListModels(plainCtx, constant.ChannelTypeOpenAI)
+	plainPayload := decodeListModelsPayload(t, plainRecorder)
+	require.Len(t, plainPayload.Data, 2)
+	for _, item := range plainPayload.Data {
+		if item.Id == "zz-plain-model" {
+			require.Empty(t, item.Aliases)
+		}
+	}
+}
+
 func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 	withSelfUseModeDisabled(t)
 	withTieredBillingConfig(t, map[string]string{

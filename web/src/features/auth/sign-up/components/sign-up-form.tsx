@@ -39,10 +39,12 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { register, wechatLoginByCode } from '@/features/auth/api'
+import { CaptchaInput } from '@/features/auth/components/captcha-input'
 import { LegalConsent } from '@/features/auth/components/legal-consent'
 import { OAuthProviders } from '@/features/auth/components/oauth-providers'
 import { registerFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
+import { useCaptcha } from '@/features/auth/hooks/use-captcha'
 import { useEmailVerification } from '@/features/auth/hooks/use-email-verification'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import {
@@ -76,6 +78,16 @@ export function SignUpForm({
     setTurnstileToken,
     validateTurnstile,
   } = useTurnstile()
+  const {
+    isCaptchaEnabled,
+    captchaId,
+    captchaImage,
+    captchaCode,
+    setCaptchaCode,
+    isLoadingCaptcha,
+    refreshCaptcha,
+    validateCaptcha,
+  } = useCaptcha()
   const { redirectToLogin, handleLoginSuccess } = useAuthRedirect()
   const {
     isSending: isSendingCode,
@@ -158,6 +170,8 @@ export function SignUpForm({
 
     if (!validateTurnstile()) return
 
+    if (!validateCaptcha()) return
+
     setIsLoading(true)
     try {
       const res = await register({
@@ -165,6 +179,8 @@ export function SignUpForm({
         password: data.password,
         email: data.email || undefined,
         verification_code: verificationCode || undefined,
+        captcha_id: captchaId || undefined,
+        captcha_code: captchaCode || undefined,
         aff_code: getAffiliateCode(),
         turnstile: turnstileToken,
       })
@@ -172,11 +188,14 @@ export function SignUpForm({
       if (res?.success) {
         toast.success(t('Account created! Please sign in'))
         redirectToLogin()
-      } else {
-        toast.error(res?.message || t('Failed to create account'))
+        return
       }
+      toast.error(res?.message || t('Failed to create account'))
+      // 图形验证码一次有效，失败后立即换一张，避免用户反复提交同一张图片。
+      void refreshCaptcha()
     } catch {
       // Errors are handled by global interceptor
+      void refreshCaptcha()
     } finally {
       setIsLoading(false)
     }
@@ -344,6 +363,18 @@ export function SignUpForm({
               </Button>
             </div>
           </>
+        )}
+
+        {/* Image captcha */}
+        {isCaptchaEnabled && (
+          <CaptchaInput
+            className='mt-2'
+            image={captchaImage}
+            code={captchaCode}
+            onCodeChange={setCaptchaCode}
+            onRefresh={refreshCaptcha}
+            isLoading={isLoadingCaptcha}
+          />
         )}
 
         {/* Turnstile */}

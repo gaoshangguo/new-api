@@ -9,6 +9,8 @@ type OpenAIModels struct {
 	Created                int                  `json:"created"`
 	OwnedBy                string               `json:"owned_by"`
 	SupportedEndpointTypes []types.EndpointType `json:"supported_endpoint_types"`
+	// Aliases 是该模型对外可用的 active 别名（便于客户端直接取用）。
+	Aliases []string `json:"aliases,omitempty"`
 }
 
 type AnthropicModel struct {

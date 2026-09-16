@@ -82,13 +82,22 @@ export function usePricingColumns(
         const model = row.original
         const modelIconKey = model.icon || model.vendor_icon
         const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 14) : null
+        const aliases = model.alias_names || []
 
         return (
           <div className='flex max-w-full min-w-0 items-center gap-2'>
             {modelIcon}
-            <span className='truncate font-mono text-sm font-medium'>
-              {model.model_name}
-            </span>
+            <div className='flex min-w-0 flex-col'>
+              <span className='truncate font-mono text-sm font-medium'>
+                {model.model_name}
+              </span>
+              {aliases.length > 0 && (
+                <span className='text-muted-foreground/60 truncate font-mono text-[11px]'>
+                  {aliases.slice(0, 2).join(', ')}
+                  {aliases.length > 2 ? ` +${aliases.length - 2}` : ''}
+                </span>
+              )}
+            </div>
           </div>
         )
       },
