@@ -102,6 +102,15 @@ export function replaceModelInPath(path: string, modelName: string): string {
 }
 
 /**
+ * Resolve the display name for a model: the first alias when present,
+ * otherwise the internal model name.
+ */
+export function getDisplayModelName(model: PricingModel): string {
+  const aliases = model.alias_names || []
+  return aliases.length > 0 ? aliases[0] : model.model_name
+}
+
+/**
  * Check if model is token-based pricing
  */
 export function isTokenBasedModel(model: PricingModel): boolean {

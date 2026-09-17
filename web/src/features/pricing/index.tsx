@@ -87,15 +87,15 @@ export function Pricing() {
     setSelectedModelName(modelName)
   }, [])
 
-  const selectedModel = useMemo(
-    () =>
-      selectedModelName
-        ? (models || []).find(
-            (model) => model.model_name === selectedModelName
-          ) || null
-        : null,
-    [models, selectedModelName]
-  )
+  const selectedModel = useMemo(() => {
+    if (!selectedModelName) return null
+    // The clicked name may be an alias; fall back to matching the internal name.
+    return (
+      (models || []).find((m) => m.model_name === selectedModelName) ||
+      (models || []).find((m) => m.alias_names?.includes(selectedModelName)) ||
+      null
+    )
+  }, [models, selectedModelName])
 
   const availableGroups = useMemo(
     () =>
