@@ -30,7 +30,11 @@ import {
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { isPerDurationModel, isTokenBasedModel } from '../lib/model-helpers'
+import {
+  getDisplayModelName,
+  isPerDurationModel,
+  isTokenBasedModel,
+} from '../lib/model-helpers'
 import {
   formatDurationPriceSummary,
   formatPrice,
@@ -65,7 +69,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const endpoints = props.model.supported_endpoint_types || []
   const modelIconKey = props.model.icon || props.model.vendor_icon
   const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 28) : null
-  const initial = props.model.model_name?.charAt(0).toUpperCase() || '?'
+  const displayName = getDisplayModelName(props.model)
+  const initial = displayName?.charAt(0).toUpperCase() || '?'
   const isDynamicPricing =
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
@@ -92,7 +97,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
-    copyToClipboard(props.model.model_name || '')
+    copyToClipboard(displayName)
   }
 
   let priceSummary: ReactNode
@@ -237,7 +242,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           </div>
           <div className='min-w-0'>
             <h3 className='text-foreground font-mono text-[15px] leading-tight font-bold break-words'>
-              {props.model.model_name}
+              {displayName}
             </h3>
             <div className='mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm sm:mt-1 sm:gap-x-3'>
               {priceSummary}
@@ -270,13 +275,24 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         {props.model.description || t('No description available.')}
       </p>
 
-      {/* Aliases: external names users can call this model with */}
+      {/* Aliases: internal model name is shown here when an alias is the title */}
       {aliases.length > 0 && (
         <div className='mt-2 flex flex-wrap items-center gap-1.5'>
           <span className='text-muted-foreground/70 text-[11px]'>
             {t('Aliases')}
           </span>
-          {aliases.slice(0, 3).map((alias) => (
+          <button
+            type='button'
+            onClick={(e) => {
+              e.stopPropagation()
+              copyToClipboard(props.model.model_name || '')
+            }}
+            title={t('Copy model name')}
+            className='bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground rounded-md px-1.5 py-0.5 font-mono text-[11px] transition-colors'
+          >
+            {props.model.model_name}
+          </button>
+          {aliases.slice(1, 3).map((alias) => (
             <button
               key={alias}
               type='button'

@@ -67,7 +67,11 @@ import {
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
+import {
+  getAvailableGroups,
+  getDisplayModelName,
+  isTokenBasedModel,
+} from '../lib/model-helpers'
 import { formatCurrencyFromUSD } from '@/lib/currency'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import type {
@@ -456,7 +460,9 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
   if (aliases.length > 0) {
     cells.push(
       <CatalogInfoCell key='aliases' label={t('Aliases')}>
-        <CatalogPillList items={aliases} />
+        <CatalogPillList
+          items={[model.model_name, ...aliases.slice(1)].filter(Boolean)}
+        />
       </CatalogInfoCell>
     )
   }
@@ -540,16 +546,17 @@ function ModelHeader(props: { model: PricingModel }) {
   const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 20) : null
   const description = model.description || model.vendor_description || null
   const aliases = model.alias_names || []
+  const displayName = getDisplayModelName(model)
 
   return (
     <header className='pb-4'>
       <div className='flex items-center gap-2.5'>
         {modelIcon}
         <h1 className='font-mono text-xl font-bold tracking-tight sm:text-2xl'>
-          {model.model_name}
+          {displayName}
         </h1>
         <CopyButton
-          value={model.model_name || ''}
+          value={displayName}
           className='size-6'
           iconClassName='size-3'
           tooltip={t('Copy model name')}
@@ -569,7 +576,16 @@ function ModelHeader(props: { model: PricingModel }) {
           <span className='text-muted-foreground text-xs'>
             {t('Aliases')}:
           </span>
-          {aliases.map((alias) => (
+          <CopyButton
+            value={model.model_name || ''}
+            size='sm'
+            tooltip={t('Copy model name')}
+            successTooltip={t('Copied!')}
+            iconClassName='size-3'
+          >
+            <span className='font-mono'>{model.model_name}</span>
+          </CopyButton>
+          {aliases.slice(1).map((alias) => (
             <CopyButton
               key={alias}
               value={alias}

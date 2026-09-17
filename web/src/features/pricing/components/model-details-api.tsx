@@ -51,7 +51,11 @@ import {
   LANG_LABELS,
   type Lang,
 } from '../lib/api-samples'
-import { isPerDurationModel, replaceModelInPath } from '../lib/model-helpers'
+import {
+  getDisplayModelName,
+  isPerDurationModel,
+  replaceModelInPath,
+} from '../lib/model-helpers'
 import type { PricingModel } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -89,7 +93,7 @@ function CodeSamplesSection(props: {
         const info = props.endpointMap[type] || {}
         let path = info.path || ''
         if (path && path.includes('{model}')) {
-          path = replaceModelInPath(path, props.model.model_name || '')
+          path = replaceModelInPath(path, getDisplayModelName(props.model))
         }
         return { type, path, method: info.method || 'POST' }
       })
@@ -112,7 +116,7 @@ function CodeSamplesSection(props: {
   const code = buildSample(lang, activeEndpoint.type, {
     baseUrl,
     apiKeyEnv: 'NEW_API_KEY',
-    modelName: props.model.model_name || '',
+    modelName: getDisplayModelName(props.model),
     endpointType: activeEndpoint.type,
     endpointPath: activeEndpoint.path,
   })
