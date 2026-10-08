@@ -27,6 +27,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import {
+  formatQuota,
+  getEditableQuotaStep,
+  parseQuotaFromDollars,
+  quotaUnitsToDollars,
+} from '@/lib/format'
 import { ROLE } from '@/lib/roles'
 
 import { updateUserSettings } from '../../api'
@@ -70,6 +76,8 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
   const [loading, setLoading] = useState(false)
   const [settings, setSettings] = useState<UserSettings>({
     notify_type: 'email',
+    low_balance_in_app_enabled: true,
+    low_balance_email_enabled: true,
     quota_warning_threshold: DEFAULT_QUOTA_WARNING_THRESHOLD,
     notification_email: '',
     webhook_url: '',
@@ -96,6 +104,10 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
       const parsed = parseUserSettings(profile.setting)
       setSettings({
         notify_type: normalizeNotifyType(parsed.notify_type),
+        low_balance_in_app_enabled: parsed.low_balance_in_app_enabled ?? true,
+        low_balance_email_enabled:
+          parsed.low_balance_email_enabled ??
+          (!parsed.notify_type || parsed.notify_type === 'email'),
         quota_warning_threshold:
           parsed.quota_warning_threshold ?? DEFAULT_QUOTA_WARNING_THRESHOLD,
         notification_email: parsed.notification_email ?? '',
@@ -125,7 +137,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
       } else {
         toast.error(response.message || t('Failed to update settings'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t('Failed to update settings'))
     } finally {
       setLoading(false)
@@ -136,6 +148,38 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
 
   return (
     <div className='space-y-4 sm:space-y-6'>
+      <div className='space-y-3'>
+        <h4 className='text-sm font-medium'>{t('Low balance reminder')}</h4>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'In-app messages and email can be enabled independently. You will be reminded again after your balance recovers and falls below the threshold.'
+          )}
+        </p>
+        <div className='flex items-center justify-between gap-3 rounded-lg border p-3'>
+          <Label htmlFor='lowBalanceInApp'>
+            {t('Low balance in-app messages')}
+          </Label>
+          <Switch
+            id='lowBalanceInApp'
+            checked={settings.low_balance_in_app_enabled}
+            onCheckedChange={(checked) =>
+              updateField('low_balance_in_app_enabled', checked)
+            }
+          />
+        </div>
+        <div className='flex items-center justify-between gap-3 rounded-lg border p-3'>
+          <Label htmlFor='lowBalanceEmail'>
+            {t('Low balance email notifications')}
+          </Label>
+          <Switch
+            id='lowBalanceEmail'
+            checked={settings.low_balance_email_enabled}
+            onCheckedChange={(checked) =>
+              updateField('low_balance_email_enabled', checked)
+            }
+          />
+        </div>
+      </div>
       {/* Notification Type */}
       <div className='space-y-2.5'>
         <Label>{t('Notification Method')}</Label>
@@ -143,8 +187,9 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
           value={[notifyType]}
           onValueChange={(value) => {
             const nextValue = value.find((item) => item !== notifyType)
-            if (nextValue)
+            if (nextValue) {
               updateField('notify_type', normalizeNotifyType(nextValue))
+            }
           }}
           aria-label={t('Notification Method')}
           variant='outline'
@@ -177,19 +222,27 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
           id='threshold'
           type='number'
           className='h-9'
-          value={settings.quota_warning_threshold}
+          min={getEditableQuotaStep()}
+          step={getEditableQuotaStep()}
+          value={quotaUnitsToDollars(settings.quota_warning_threshold ?? 0)}
           onChange={(e) =>
-            updateField('quota_warning_threshold', Number(e.target.value))
+            updateField(
+              'quota_warning_threshold',
+              parseQuotaFromDollars(Number(e.target.value))
+            )
           }
           placeholder={t('Enter threshold')}
         />
         <p className='text-muted-foreground text-xs'>
-          {t('Get notified when balance falls below this value')}
+          {t('Get notified when balance falls below this value')}{' '}
+          {t('Reminder threshold: {{amount}}', {
+            amount: formatQuota(settings.quota_warning_threshold ?? 0),
+          })}
         </p>
       </div>
 
       {/* Email Settings */}
-      {notifyType === 'email' && (
+      {(notifyType === 'email' || settings.low_balance_email_enabled) && (
         <div className='space-y-1.5'>
           <Label htmlFor='notifyEmail'>{t('Notification Email')}</Label>
           <Input

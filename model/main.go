@@ -297,6 +297,8 @@ func migrateDB() error {
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
+		&UserNotification{},
+		&UserLowBalanceState{},
 		&CasbinRule{},
 		&AuthzRole{},
 		&Company{}, &BusinessProject{}, &CustomerAssignment{}, &SalesAccountProfile{}, &BalanceLedger{}, &BusinessConsumption{}, &BusinessProjectBudgetReservation{}, &BusinessProjectReminder{}, &ManualCreditRequest{}, &BusinessAuditEvent{}, &BusinessAnnouncement{}, &BusinessFollowUp{}, &PriceVersion{}, &ModelAlias{}, &PlatformAlertRule{}, &PlatformAlertEvent{},
@@ -369,6 +371,8 @@ func migrateDBFast() error {
 		{&SystemInstance{}, "SystemInstance"},
 		{&SystemTask{}, "SystemTask"},
 		{&SystemTaskLock{}, "SystemTaskLock"},
+		{&UserNotification{}, "UserNotification"},
+		{&UserLowBalanceState{}, "UserLowBalanceState"},
 		{&Company{}, "Company"}, {&BusinessProject{}, "BusinessProject"}, {&CustomerAssignment{}, "CustomerAssignment"}, {&SalesAccountProfile{}, "SalesAccountProfile"}, {&BalanceLedger{}, "BalanceLedger"}, {&BusinessConsumption{}, "BusinessConsumption"}, {&BusinessProjectBudgetReservation{}, "BusinessProjectBudgetReservation"}, {&BusinessProjectReminder{}, "BusinessProjectReminder"}, {&ManualCreditRequest{}, "ManualCreditRequest"}, {&BusinessAuditEvent{}, "BusinessAuditEvent"}, {&BusinessAnnouncement{}, "BusinessAnnouncement"}, {&BusinessFollowUp{}, "BusinessFollowUp"}, {&PriceVersion{}, "PriceVersion"}, {&ModelAlias{}, "ModelAlias"}, {&PlatformAlertRule{}, "PlatformAlertRule"}, {&PlatformAlertEvent{}, "PlatformAlertEvent"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
@@ -814,7 +818,7 @@ func checkMySQLChineseSupport(db *gorm.DB) error {
 			maxShow, shown, maxShow, shown,
 		)
 	}
-		return nil
+	return nil
 }
 
 var (

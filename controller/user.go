@@ -3,7 +3,9 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"strconv"
 	"strings"
@@ -1468,6 +1470,8 @@ func TopUp(c *gin.Context) {
 }
 
 type UpdateUserSettingRequest struct {
+	LowBalanceInAppEnabled           *bool   `json:"low_balance_in_app_enabled,omitempty"`
+	LowBalanceEmailEnabled           *bool   `json:"low_balance_email_enabled,omitempty"`
 	QuotaWarningType                 string  `json:"notify_type"`
 	QuotaWarningThreshold            float64 `json:"quota_warning_threshold"`
 	WebhookUrl                       string  `json:"webhook_url,omitempty"`
@@ -1500,6 +1504,10 @@ func UpdateUserSetting(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgQuotaThresholdGtZero)
 		return
 	}
+	if math.IsNaN(req.QuotaWarningThreshold) || math.IsInf(req.QuotaWarningThreshold, 0) || req.QuotaWarningThreshold > float64(common.MaxQuota) || math.Trunc(req.QuotaWarningThreshold) != req.QuotaWarningThreshold {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
 
 	// 如果是webhook类型,验证webhook地址
 	if req.QuotaWarningType == dto.NotifyTypeWebhook {
@@ -1514,10 +1522,11 @@ func UpdateUserSetting(c *gin.Context) {
 		}
 	}
 
-	// 如果是邮件类型，验证邮箱地址
-	if req.QuotaWarningType == dto.NotifyTypeEmail && req.NotificationEmail != "" {
+	// 邮件可独立开启，通知邮箱只允许一个有效地址。
+	if req.NotificationEmail != "" {
 		// 验证邮箱格式
-		if !strings.Contains(req.NotificationEmail, "@") {
+		address, err := mail.ParseAddress(req.NotificationEmail)
+		if err != nil || address.Address != req.NotificationEmail || len(req.NotificationEmail) > 254 {
 			common.ApiErrorI18n(c, i18n.MsgSettingEmailInvalid)
 			return
 		}
@@ -1576,12 +1585,17 @@ func UpdateUserSetting(c *gin.Context) {
 	}
 
 	// 构建设置
-	settings := dto.UserSetting{
-		NotifyType:                       req.QuotaWarningType,
-		QuotaWarningThreshold:            req.QuotaWarningThreshold,
-		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
-		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
-		RecordIpLog:                      req.RecordIpLog,
+	settings := existingSettings
+	settings.NotifyType = req.QuotaWarningType
+	settings.QuotaWarningThreshold = req.QuotaWarningThreshold
+	settings.UpstreamModelUpdateNotifyEnabled = upstreamModelUpdateNotifyEnabled
+	settings.AcceptUnsetRatioModel = req.AcceptUnsetModelRatioModel
+	settings.RecordIpLog = req.RecordIpLog
+	if req.LowBalanceInAppEnabled != nil {
+		settings.LowBalanceInAppEnabled = req.LowBalanceInAppEnabled
+	}
+	if req.LowBalanceEmailEnabled != nil {
+		settings.LowBalanceEmailEnabled = req.LowBalanceEmailEnabled
 	}
 
 	// 如果是webhook类型,添加webhook相关设置
@@ -1592,10 +1606,8 @@ func UpdateUserSetting(c *gin.Context) {
 		}
 	}
 
-	// 如果提供了通知邮箱，添加到设置中
-	if req.QuotaWarningType == dto.NotifyTypeEmail && req.NotificationEmail != "" {
-		settings.NotificationEmail = req.NotificationEmail
-	}
+	// 空值恢复使用账户邮箱，独立邮件开关不受外部推送类型影响。
+	settings.NotificationEmail = req.NotificationEmail
 
 	// 如果是Bark类型，添加Bark URL到设置中
 	if req.QuotaWarningType == dto.NotifyTypeBark {

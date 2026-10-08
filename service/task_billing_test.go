@@ -47,6 +47,8 @@ func TestMain(m *testing.M) {
 		&model.Task{},
 		&model.Midjourney{},
 		&model.User{},
+		&model.UserNotification{},
+		&model.UserLowBalanceState{},
 		&model.Token{},
 		&model.Log{},
 		&model.Channel{},

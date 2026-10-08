@@ -737,6 +737,9 @@ func approveManualCreditRequest(id int, expectedStatus string, escalationReason 
 	if err != nil {
 		return nil, err
 	}
+	if ledger.Amount > 0 {
+		RearmRecoveredUserLowBalance(ledger.UserId)
+	}
 	if err := updateUserCacheField(ledger.UserId, "Quota", ledger.BalanceAfter); err != nil {
 		// The committed ledger and quota are authoritative. A cache refresh failure
 		// must not make a successful approval appear failed to a caller.
@@ -1525,14 +1528,14 @@ type BusinessOperationsOverview struct {
 	ErrorCount             int64 `json:"error_count"`
 	ConsumedQuota          int64 `json:"consumed_quota"`
 	// P0-27 经营指标：收入=窗口消费，成本=收入×成本系数（operations.cost_ratio，默认 0.6），毛利=收入-成本。
-	CostRatio              float64          `json:"cost_ratio"`
-	RevenueQuota           int64            `json:"revenue_quota"`
-	CostQuota              int64            `json:"cost_quota"`
-	GrossMarginQuota       int64            `json:"gross_margin_quota"`
-	TopModels              []CompanyModelUsage `json:"top_models"`
-	TopCompanies           []CompanyModelUsage `json:"top_companies"`
-	EnabledChannelCount    int64 `json:"enabled_channel_count"`
-	DegradedChannelCount   int64 `json:"degraded_channel_count"`
+	CostRatio            float64             `json:"cost_ratio"`
+	RevenueQuota         int64               `json:"revenue_quota"`
+	CostQuota            int64               `json:"cost_quota"`
+	GrossMarginQuota     int64               `json:"gross_margin_quota"`
+	TopModels            []CompanyModelUsage `json:"top_models"`
+	TopCompanies         []CompanyModelUsage `json:"top_companies"`
+	EnabledChannelCount  int64               `json:"enabled_channel_count"`
+	DegradedChannelCount int64               `json:"degraded_channel_count"`
 }
 
 type BusinessChannelHealth struct {
@@ -1952,7 +1955,6 @@ func listBusinessProjectTokenIDs(projectID int) ([]int, error) {
 	}
 	return tokenIDs, nil
 }
-
 
 // GetBusinessCompany 返回单个企业（含主体资料字段）。
 func GetBusinessCompany(companyID int) (*Company, error) {

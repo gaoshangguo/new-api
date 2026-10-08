@@ -548,7 +548,15 @@ func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, pre
 
 func checkAndSendQuotaNotify(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int) {
 	gopool.Go(func() {
+		if err := CheckUserLowBalance(context.Background(), relayInfo.UserId); err != nil {
+			common.SysError(fmt.Sprintf("personal low balance notify failed for user %d: %v", relayInfo.UserId, err))
+		}
 		userSetting := relayInfo.UserSetting
+		// Personal email is durably deduplicated above; preserve the existing
+		// external push channels without sending a second legacy email.
+		if userSetting.NotifyType == "" || userSetting.NotifyType == dto.NotifyTypeEmail {
+			return
+		}
 		threshold := common.QuotaRemindThreshold
 		if userSetting.QuotaWarningThreshold != 0 {
 			threshold = int(userSetting.QuotaWarningThreshold)
