@@ -47,6 +47,8 @@ func setupBillingProjectBudgetSession(t *testing.T, budgetQuota int, reservedQuo
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&model.User{},
+		&model.UserNotification{},
+		&model.UserLowBalanceState{},
 		&model.Company{},
 		&model.BusinessProject{},
 		&model.Token{},

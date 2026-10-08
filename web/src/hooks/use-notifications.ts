@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { useState, useMemo } from 'react'
 
+import { usePersonalNotifications } from '@/hooks/use-personal-notifications'
 import { useStatus } from '@/hooks/use-status'
 import { getNotice } from '@/lib/api'
 import { useNotificationStore } from '@/stores/notification-store'
@@ -63,10 +64,11 @@ function getAnnouncementKey(item: Record<string, unknown>): string {
  * Provides unread counts and read status management
  */
 export function useNotifications() {
+  const personal = usePersonalNotifications()
   const [popoverOpen, setPopoverOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'notice' | 'announcements'>(
-    'notice'
-  )
+  const [activeTab, setActiveTab] = useState<
+    'notice' | 'announcements' | 'messages'
+  >('notice')
 
   // Fetch Notice from API
   const {
@@ -82,10 +84,13 @@ export function useNotifications() {
   // Fetch Announcements from status
   const { status, loading: statusLoading } = useStatus()
   const announcementsEnabled = status?.announcements_enabled ?? false
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const announcements: Record<string, unknown>[] = announcementsEnabled
-    ? ((status?.announcements || []) as Record<string, unknown>[]).slice(0, 20)
-    : []
+  const announcements = useMemo<Record<string, unknown>[]>(() => {
+    if (!announcementsEnabled) return []
+    return ((status?.announcements || []) as Record<string, unknown>[]).slice(
+      0,
+      20
+    )
+  }, [announcementsEnabled, status?.announcements])
 
   // Notification store
   const {
@@ -129,7 +134,7 @@ export function useNotifications() {
   }
 
   // Handle popover open
-  const handleOpenPopover = (tab?: 'notice' | 'announcements') => {
+  const handleOpenPopover = (tab?: 'notice' | 'announcements' | 'messages') => {
     const nextTab = tab || activeTab
 
     // Mark currently visible content as read when opening the notification center
@@ -154,7 +159,7 @@ export function useNotifications() {
   }
 
   // Handle tab change - mark announcements as read when switching to that tab
-  const handleTabChange = (tab: 'notice' | 'announcements') => {
+  const handleTabChange = (tab: 'notice' | 'announcements' | 'messages') => {
     setActiveTab(tab)
 
     if (tab === 'announcements') {
@@ -167,16 +172,18 @@ export function useNotifications() {
     notice: noticeContent,
     announcements,
     loading: noticeLoading || statusLoading,
+    personal,
 
     // Unread counts
-    unreadCount: unreadCounts.total,
+    unreadCount: unreadCounts.total + (personal?.unreadCount ?? 0),
     unreadNoticeCount: unreadCounts.notice,
     unreadAnnouncementsCount: unreadCounts.announcements,
 
     // Popover state
     popoverOpen,
     setPopoverOpen: handlePopoverOpenChange,
-    activeTab,
+    activeTab:
+      activeTab === 'messages' && !personal ? ('notice' as const) : activeTab,
     setActiveTab: handleTabChange,
 
     // Actions

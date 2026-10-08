@@ -77,16 +77,16 @@ func resolveUserSortOptions(sortOptions []UserSortOptions) UserSortOptions {
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
-	Id               int                        `json:"id"`
-	Username         string                     `json:"username" gorm:"unique;index" validate:"max=20"`
-	Password         string                     `json:"password" gorm:"not null;" validate:"min=8,max=20"`
-	OriginalPassword string                     `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
-	DisplayName      string                     `json:"display_name" gorm:"index" validate:"max=20"`
-	Role             int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
-	Status           int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
-	Email            string                     `json:"email" gorm:"index" validate:"max=50"`
+	Id               int    `json:"id"`
+	Username         string `json:"username" gorm:"unique;index" validate:"max=20"`
+	Password         string `json:"password" gorm:"not null;" validate:"min=8,max=20"`
+	OriginalPassword string `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
+	DisplayName      string `json:"display_name" gorm:"index" validate:"max=20"`
+	Role             int    `json:"role" gorm:"type:int;default:1"`   // admin, common
+	Status           int    `json:"status" gorm:"type:int;default:1"` // enabled, disabled
+	Email            string `json:"email" gorm:"index" validate:"max=50"`
 	// Phone 手机号（P0-03）：支持手机号登录；index 允许空值重复（未绑定时为空串）。
-	Phone string `json:"phone" gorm:"size:32;index" validate:"max=32"`
+	Phone            string                     `json:"phone" gorm:"size:32;index" validate:"max=32"`
 	GitHubId         string                     `json:"github_id" gorm:"column:github_id;index"`
 	DiscordId        string                     `json:"discord_id" gorm:"column:discord_id;index"`
 	OidcId           string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
@@ -1294,6 +1294,9 @@ func increaseUserQuota(id int, quota int) (err error) {
 	if err != nil {
 		return err
 	}
+	if quota > 0 {
+		RearmRecoveredUserLowBalance(id)
+	}
 	return err
 }
 
@@ -1401,6 +1404,9 @@ func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, r
 	).Error
 	if err != nil {
 		common.SysLog("failed to batch update user quota, used quota and request count: " + err.Error())
+	}
+	if err == nil && quota > 0 {
+		RearmRecoveredUserLowBalance(id)
 	}
 }
 

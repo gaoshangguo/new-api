@@ -117,6 +117,9 @@ func persistUserQuotaDelta(id int, delta int) error {
 	if result.RowsAffected != 1 {
 		return gorm.ErrRecordNotFound
 	}
+	if delta > 0 {
+		RearmRecoveredUserLowBalance(id)
+	}
 	return nil
 }
 

@@ -20,6 +20,7 @@ import type { TFunction } from 'i18next'
 import { Bell, Megaphone } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { PersonalNotificationsContent } from '@/components/personal-notifications-content'
 import { RichContent } from '@/components/rich-content'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -40,6 +41,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { PersonalInbox } from '@/hooks/use-personal-notifications'
 import { getAnnouncementColorClass } from '@/lib/colors'
 import { formatDateTimeObject } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -56,8 +58,9 @@ interface NotificationPopoverProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   unreadCount: number
-  activeTab: 'notice' | 'announcements'
-  onTabChange: (tab: 'notice' | 'announcements') => void
+  activeTab: 'notice' | 'announcements' | 'messages'
+  onTabChange: (tab: 'notice' | 'announcements' | 'messages') => void
+  personal?: PersonalInbox
   notice: string
   announcements: AnnouncementItem[]
   loading: boolean
@@ -300,6 +303,7 @@ export function NotificationPopover({
   announcements,
   loading,
   className,
+  personal,
 }: NotificationPopoverProps) {
   const { t } = useTranslation()
   return (
@@ -331,7 +335,7 @@ export function NotificationPopover({
         className='w-[min(26rem,calc(100vw-1rem))] gap-3 p-3'
       >
         <PopoverHeader className='gap-1 px-1'>
-          <PopoverTitle>{t('System Announcements')}</PopoverTitle>
+          <PopoverTitle>{t('Notifications')}</PopoverTitle>
           <p className='text-muted-foreground text-xs'>
             {t('Latest platform updates and notices')}
           </p>
@@ -339,9 +343,32 @@ export function NotificationPopover({
 
         <Tabs
           value={activeTab}
-          onValueChange={onTabChange as (value: string) => void}
+          onValueChange={(value) => {
+            if (
+              value === 'notice' ||
+              value === 'announcements' ||
+              value === 'messages'
+            ) {
+              onTabChange(value)
+            }
+          }}
         >
-          <TabsList className='grid w-full grid-cols-2'>
+          <TabsList
+            className={cn(
+              'grid w-full',
+              personal ? 'grid-cols-3' : 'grid-cols-2'
+            )}
+          >
+            {personal && (
+              <TabsTrigger value='messages' className='gap-1.5'>
+                {t('Messages')}
+                {personal.unreadCount > 0 && (
+                  <Badge variant='destructive'>
+                    {personal.unreadCount > 99 ? '99+' : personal.unreadCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            )}
             <TabsTrigger value='notice' className='gap-1.5'>
               <Bell className='size-3.5' />
               {t('Notice')}
@@ -355,6 +382,12 @@ export function NotificationPopover({
           <TabsContent value='notice' className='mt-2'>
             <NoticeContent notice={notice} loading={loading} t={t} />
           </TabsContent>
+
+          {personal && (
+            <TabsContent value='messages' className='mt-2'>
+              <PersonalNotificationsContent inbox={personal} />
+            </TabsContent>
+          )}
 
           <TabsContent value='announcements' className='mt-2'>
             <AnnouncementsContent
