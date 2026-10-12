@@ -2,6 +2,8 @@ package dto
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
 	"strconv"
 )
 
@@ -33,6 +35,20 @@ func (i *IntValue) UnmarshalJSON(b []byte) error {
 	var n int
 	if err := json.Unmarshal(b, &n); err == nil {
 		*i = IntValue(n)
+		return nil
+	}
+	// 上游可能把整数编码成浮点（如万相任务的 "duration": 5.0），
+	// 按数字解析后截断，避免一个字段让整段响应解析失败。
+	var num json.Number
+	if err := json.Unmarshal(b, &num); err == nil {
+		f, err := num.Float64()
+		if err != nil {
+			return err
+		}
+		if f >= float64(math.MaxInt) || f <= float64(math.MinInt) {
+			return fmt.Errorf("int value out of range: %s", num.String())
+		}
+		*i = IntValue(f)
 		return nil
 	}
 	var s string

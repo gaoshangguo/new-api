@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/stretchr/testify/require"
 )
@@ -169,4 +170,25 @@ func TestConvertToAliRequestWan25I2VKeepsLegacyImgURL(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(body), `"img_url"`)
 	require.NotContains(t, string(body), `"media"`)
+}
+
+func TestParseTaskResultAcceptsFloatUsageDuration(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	// Topen 的万相接口把 usage.duration 返回成浮点数（5.0），
+	// 曾导致整段响应解析失败、任务永久停留在进行中。
+	body := []byte(`{
+		"request_id": "020d7ee2-8583-9610-ae50-2f5254ddd27d",
+		"output": {
+			"task_id": "task_PpYidFe59Lahy3hPj9nhHQjbQQPam8yW",
+			"task_status": "SUCCEEDED",
+			"video_url": "https://example.com/video.mp4"
+		},
+		"usage": {"video_count": 1, "duration": 5.0, "SR": 1080}
+	}`)
+
+	taskInfo, err := adaptor.ParseTaskResult(body)
+
+	require.NoError(t, err)
+	require.Equal(t, model.TaskStatusSuccess, taskInfo.Status)
+	require.Equal(t, "https://example.com/video.mp4", taskInfo.Url)
 }
