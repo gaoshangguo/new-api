@@ -40,8 +40,9 @@ import {
 
 import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
 import { buildSearchParams } from '../lib/filter'
-import { getDefaultTimeRange } from '../lib/utils'
+import { buildApiParams, getDefaultTimeRange } from '../lib/utils'
 import type { CommonLogFilters } from '../types'
+import { CommonLogsExportButton } from './common-logs-export-button'
 import { CommonLogsStats } from './common-logs-stats'
 import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
 import {
@@ -414,6 +415,20 @@ export function CommonLogsFilterBar<TData>(
       table={props.table}
       stats={statsBar}
       actionStart={sensitiveToggle}
+      actionEnd={
+        <CommonLogsExportButton
+          isAdmin={isAdmin}
+          params={buildApiParams({
+            page: 1,
+            pageSize: 20,
+            isAdmin,
+            searchParams: {
+              ...buildSearchParams(filters, 'common'),
+              type: [logType],
+            },
+          })}
+        />
+      }
       primaryFilters={
         <>
           {dateRangeFilter}

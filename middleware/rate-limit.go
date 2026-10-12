@@ -252,3 +252,9 @@ func SearchRateLimit() func(c *gin.Context) {
 	}
 	return userRateLimitFactory(common.SearchRateLimitNum, common.SearchRateLimitDuration, "SR")
 }
+
+// Exports are substantially heavier than paginated log searches. Keep this
+// per-user limit enabled even when configurable search limits are disabled.
+func UsageLogExportRateLimit() gin.HandlerFunc {
+	return userRateLimitFactory(2, 60, "LOG_EXPORT")
+}
