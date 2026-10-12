@@ -46,6 +46,7 @@ interface LogsFilterToolbarProps<TData> {
   mobileFilterCount?: number
   stats?: ReactNode
   actionStart?: ReactNode
+  actionEnd?: ReactNode
   hasActiveFilters: boolean
   hasAdvancedActiveFilters?: boolean
   advancedFilterCount?: number
@@ -151,7 +152,7 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
             )}
           >
             {!mobilePanelCollapsed && props.stats}
-            <div className='flex items-center justify-end gap-1.5'>
+            <div className='flex flex-wrap items-center justify-end gap-1.5'>
               <Button
                 type='button'
                 variant='ghost'
@@ -198,6 +199,7 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
                 {t('Search')}
               </Button>
               <DataTableViewOptions table={props.table} />
+              {props.actionEnd}
             </div>
           </div>
         </div>
@@ -287,6 +289,7 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
             {t('Search')}
           </Button>
           <DataTableViewOptions table={props.table} />
+          {props.actionEnd}
         </div>
       </div>
     </div>

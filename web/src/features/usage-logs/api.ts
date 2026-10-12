@@ -16,9 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { isAxiosError } from 'axios'
+
 import { api } from '@/lib/api'
 
-import { buildQueryParams } from './lib/utils'
+import { buildQueryParams } from './lib/query-params'
 import type {
   GetLogsParams,
   GetLogsResponse,
@@ -76,6 +78,63 @@ export const getAllLogs = (params: GetLogsParams = {}) =>
 export const getUserLogs = (
   params: Omit<GetLogsParams, 'username' | 'channel'> = {}
 ) => fetchLogs('/api/log', params, false)
+
+export async function exportUsageLogs(
+  params: GetLogsParams,
+  isAdmin: boolean
+): Promise<Blob> {
+  const filters: Record<string, unknown> = { ...params }
+  delete filters.p
+  delete filters.page_size
+  if (!isAdmin) {
+    delete filters.username
+    delete filters.channel
+  }
+  const path = `${buildApiPath('/api/log', isAdmin)}/export`
+  let data: Blob
+  let failureCode = 'LOG_EXPORT_FAILED'
+  try {
+    const response = await api.get<Blob>(
+      `${path}?${buildQueryParams(filters)}`,
+      {
+        responseType: 'blob',
+        skipErrorHandler: true,
+        disableDuplicate: true,
+      }
+    )
+    data = response.data
+  } catch (error) {
+    if (!isAxiosError(error) || !(error.response?.data instanceof Blob)) {
+      throw Object.assign(new Error('Usage log export failed'), {
+        code: 'LOG_EXPORT_FAILED',
+      })
+    }
+    if (error.response.status === 429) failureCode = 'LOG_EXPORT_BUSY'
+    data = error.response.data
+  }
+  if (
+    data.type.split(';')[0] ===
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ) {
+    return data
+  }
+  let code = failureCode
+  try {
+    const payload: unknown = JSON.parse(await data.text())
+    if (
+      payload &&
+      typeof payload === 'object' &&
+      'code' in payload &&
+      typeof payload.code === 'string' &&
+      payload.code.startsWith('LOG_EXPORT_')
+    ) {
+      code = payload.code
+    }
+  } catch {
+    // A proxy/network failure must not be saved as an Excel file.
+  }
+  throw Object.assign(new Error('Usage log export failed'), { code })
+}
 
 export const getLogStats = (params: GetLogStatsParams = {}) =>
   fetchLogStats('/api/log', params, true)

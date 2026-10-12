@@ -17,6 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 const serverErrorMessageKeys = {
+  LOG_EXPORT_INVALID_FILTER: 'Invalid log export filters.',
+  LOG_EXPORT_LIMIT:
+    'Export is limited to 10,000 logs. Please narrow the filters.',
+  LOG_EXPORT_SIZE: 'Log export is too large. Please narrow the filters.',
+  LOG_EXPORT_FAILED:
+    'Log export failed. Please narrow the filters or try again.',
+  LOG_EXPORT_BUSY: 'Log export is busy. Please try again later.',
   AUTH_SESSION_LIMIT:
     'Too many active login sessions. On a device where you are already signed in, open Login sessions and use “Sign out other sessions” to revoke them. If you cannot access a signed-in device, reset your password to sign out all sessions.',
   AUTH_SESSION_ISSUANCE_LIMIT:

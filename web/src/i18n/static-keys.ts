@@ -19,6 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  // Usage log export errors from backend error codes
+  'Invalid log export filters.',
+  'Export is limited to 10,000 logs. Please narrow the filters.',
+  'Log export is too large. Please narrow the filters.',
+  'Log export failed. Please narrow the filters or try again.',
+  'Log export is busy. Please try again later.',
   // Header navigation
   'Home',
   'Console',
