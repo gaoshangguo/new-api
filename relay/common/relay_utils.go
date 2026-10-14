@@ -145,6 +145,11 @@ func validatePrompt(prompt string) *dto.TaskError {
 // overflow quota calculation into a negative charge.
 const MaxTaskDurationSeconds = 3600
 
+// OtherRatioSeconds 是 OtherRatios 中表达视频时长的键。它只在提交阶段用于
+// 估算预扣额度：按 token 计费的上游返回的 token 数本身随时长增长，结算时
+// 再乘一次会让费用随时长平方增长（见 task_billing.RecalculateTaskQuotaByTokens）。
+const OtherRatioSeconds = "seconds"
+
 func validateTaskDurationBounds(req TaskSubmitReq) *dto.TaskError {
 	seconds := req.Duration
 	if seconds == 0 && req.Seconds != "" {

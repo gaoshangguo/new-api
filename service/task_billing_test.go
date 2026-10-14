@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/glebarez/sqlite"
 	"github.com/shopspring/decimal"
@@ -1054,6 +1055,61 @@ func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+// 按 token 计费的上游返回的 token 数本身随时长增长（视频 token ∝ 秒数），
+// 结算不能再乘时长倍率，否则费用随时长平方增长。
+// 回归：6 秒视频（300000 tokens）被按 6 倍计费，扣了 1,232,876 而非 205,479。
+func TestRecalculateTaskQuotaByTokensExcludesDurationRatio(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 15, 15, 15
+	const modelName = "minimax-video-h3"
+	const initQuota = 10_000_000
+	const preConsumed = 1_027_392 // 提交时按 seconds: 6 估算的预扣
+	const totalTokens = 300_000
+	const wantQuota = 205_479 // 300000 × 0.68493150685，截断
+
+	savedRatios := ratio_setting.ModelRatio2JSONString()
+	savedGroupRatios := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(savedRatios))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(savedGroupRatios))
+	})
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"`+modelName+`":0.68493150685}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-settle-duration", 5000)
+	seedChannel(t, channelID)
+	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
+
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext = &model.TaskBillingContext{
+		ModelRatio:      0.68493150685,
+		GroupRatio:      1,
+		OtherRatios:     map[string]float64{relaycommon.OtherRatioSeconds: 6},
+		OriginModelName: modelName,
+	}
+
+	RecalculateTaskQuotaByTokens(ctx, task, totalTokens)
+
+	assert.Equal(t, wantQuota, task.Quota)
+	// 预扣含时长倍率，结算只按 token 计费，差额退回钱包与令牌
+	assert.Equal(t, initQuota+(preConsumed-wantQuota), getUserQuota(t, userID))
+	assert.Equal(t, wantQuota, getTokenUsedQuota(t, tokenID))
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, preConsumed-wantQuota, log.Quota)
+
+	// 时长之外的单价修正倍率仍然参与结算
+	priceData := taskBillingContextPriceData(&model.TaskBillingContext{
+		OtherRatios: map[string]float64{relaycommon.OtherRatioSeconds: 6, "resolution": 1.5},
+	})
+	require.NotNil(t, priceData)
+	assert.Equal(t, 1.5, priceData.OtherRatioMultiplierExcept(relaycommon.OtherRatioSeconds))
 }
 
 // ===========================================================================

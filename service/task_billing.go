@@ -372,15 +372,18 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		finalGroupRatio = groupRatio
 	}
 
-	// 计算 OtherRatios 乘积（视频折扣、时长等）
+	// 计算结算倍率乘积（分辨率、视频输入折扣等单价修正）。
+	// 时长倍率不参与结算：按 token 计费的上游返回的 token 数本身随时长增长
+	//（视频 token ∝ 秒数），提交阶段的 seconds 只用于估算预扣，
+	// 结算再乘一次会让费用随时长平方增长。
 	otherMultiplier := 1.0
 	if priceData := taskBillingContextPriceData(task.PrivateData.BillingContext); priceData != nil {
-		otherMultiplier = priceData.OtherRatioMultiplier()
+		otherMultiplier = priceData.OtherRatioMultiplierExcept(relaycommon.OtherRatioSeconds)
 	}
 
 	// 计算实际应扣费额度: totalTokens * modelRatio * groupRatio * otherMultiplier（饱和转换，防止溢出成负数）
 	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
 
-	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
+	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f（不含时长倍率）", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
 	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
 }

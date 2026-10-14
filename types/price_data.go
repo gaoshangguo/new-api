@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/shopspring/decimal"
 )
@@ -78,11 +79,18 @@ func (p *PriceData) OtherRatios() map[string]float64 {
 }
 
 func (p *PriceData) OtherRatioMultiplier() float64 {
+	return p.OtherRatioMultiplierExcept()
+}
+
+// OtherRatioMultiplierExcept 返回除 exclude 列出的键之外，所有有效倍率的乘积。
+// 结算路径用它排除只用于估算用量的倍率（例如时长），避免与上游返回的用量重复计算。
+func (p *PriceData) OtherRatioMultiplierExcept(exclude ...string) float64 {
 	multiplier := 1.0
-	for _, ratio := range p.otherRatios {
-		if isValidOtherRatio(ratio) && ratio != 1.0 {
-			multiplier *= ratio
+	for key, ratio := range p.otherRatios {
+		if !isValidOtherRatio(ratio) || ratio == 1.0 || slices.Contains(exclude, key) {
+			continue
 		}
+		multiplier *= ratio
 	}
 	return multiplier
 }
