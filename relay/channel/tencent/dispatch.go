@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 )
 
 const tokenHubBaseURL = "https://tokenhub.tencentmaas.com"
@@ -17,9 +18,20 @@ type DispatchAdaptor struct {
 }
 
 func (a *DispatchAdaptor) Init(info *relaycommon.RelayInfo) {
-	if strings.Contains(info.ApiKey, "|") {
+	model := info.UpstreamModelName
+	if model == "" {
+		model = info.OriginModelName
+	}
+	switch {
+	case IsVegaImageModel(model) && info.RelayMode == relayconstant.RelayModeImagesGenerations:
+		// WAND-Vega 生图是异步任务协议，不能走 OpenAI 兼容生图。
+		a.Adaptor = &VegaImageAdaptor{}
+		if info.ChannelBaseUrl == "" || info.ChannelBaseUrl == constant.ChannelBaseURLs[constant.ChannelTypeTencent] {
+			info.ChannelBaseUrl = tokenHubBaseURL
+		}
+	case strings.Contains(info.ApiKey, "|"):
 		a.Adaptor = &Adaptor{}
-	} else {
+	default:
 		a.Adaptor = &openai.Adaptor{}
 		if info.ChannelBaseUrl == "" || info.ChannelBaseUrl == constant.ChannelBaseURLs[constant.ChannelTypeTencent] {
 			info.ChannelBaseUrl = tokenHubBaseURL

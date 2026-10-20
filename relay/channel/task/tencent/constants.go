@@ -34,6 +34,10 @@ const (
 
 	hunyuanGenerationEndpoint = "/v1/wand/hunyuan-video/generation"
 	hunyuanQueryEndpoint      = "/v1/wand/hunyuan-video/tasks"
+
+	// WAND-Vega 视频（Vega-Video-1.0/1.5）。提交返回 201，查询用路径参数。
+	vegaVideoSubmitEndpoint = "/v1/wand/vega-videos/tasks"
+	vegaVideoQueryEndpoint  = "/v1/wand/vega-videos/tasks"
 )
 
 // MiniMax 分辨率档位（WAND 枚举，大写下标 P）。
@@ -93,6 +97,14 @@ const (
 	hunyuanStatusRunning   = "running"
 	hunyuanStatusSucceeded = "succeeded"
 	hunyuanStatusFailed    = "failed"
+)
+
+// WAND-Vega 查询任务状态。
+const (
+	vegaStatusQueued    = "queued"
+	vegaStatusRunning   = "running"
+	vegaStatusSucceeded = "succeeded"
+	vegaStatusFailed    = "failed"
 )
 
 // PixVerse 查询任务状态（数字码）。

@@ -36,6 +36,8 @@ func familyForModel(model string) wandFamily {
 		return &viduFamily{}
 	case strings.HasPrefix(model, "hy-video"):
 		return &hunyuanFamily{}
+	case strings.HasPrefix(model, "wand-vega-video"):
+		return &vegaFamily{}
 	}
 	return nil
 }
@@ -64,6 +66,12 @@ func familyForResponse(respBody []byte) wandFamily {
 	}
 	if _, ok := probe["videos"].([]any); ok {
 		return &hunyuanFamily{}
+	}
+	// Vega 查询响应使用顶层 id（而非 task_id），结果在 content.video_url。
+	if _, ok := probe["id"].(string); ok {
+		if _, hasTaskID := probe["task_id"]; !hasTaskID {
+			return &vegaFamily{}
+		}
 	}
 	if _, ok := probe["content"].(map[string]any); ok {
 		return &minimaxFamily{}

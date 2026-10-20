@@ -44,6 +44,8 @@ func TestFamilyForModel(t *testing.T) {
 		{"vidu-video-q3-turbo", "vidu"},
 		{"vidu-video-q2-pro", "vidu"},
 		{"hy-video-v1.5", "hunyuan"},
+		{"wand-vega-video-1.0-pro", "vega"},
+		{"wand-vega-video-1.5-pro", "vega"},
 		{"unknown-model", ""},
 	}
 	for _, tc := range cases {
@@ -67,6 +69,8 @@ func familyType(name string) any {
 		return &klingFamily{}
 	case "vidu":
 		return &viduFamily{}
+	case "vega":
+		return &vegaFamily{}
 	default:
 		return &hunyuanFamily{}
 	}
@@ -86,6 +90,8 @@ func TestFamilyForResponse(t *testing.T) {
 		{"vidu", `{"task_id":"t","state":"processing"}`, "vidu"},
 		{"hunyuan success", `{"task_id":"t","status":"succeeded","videos":[]}`, "hunyuan"},
 		{"hunyuan failed no videos", `{"task_id":"t","status":"failed","error":{"message":"x"}}`, "hunyuan"},
+		{"vega running", `{"id":"t","model":"wand-vega-video-1.5-pro","status":"running"}`, "vega"},
+		{"vega succeeded", `{"id":"t","status":"succeeded","content":{"video_url":"u"},"tokenhub_usage":{"total_tokens":12}}`, "vega"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
