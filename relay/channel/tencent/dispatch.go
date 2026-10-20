@@ -23,6 +23,12 @@ func (a *DispatchAdaptor) Init(info *relaycommon.RelayInfo) {
 		model = info.OriginModelName
 	}
 	switch {
+	case IsMdImageModel(model) && info.RelayMode == relayconstant.RelayModeImagesGenerations:
+		// WAND Midjourney 生图是异步任务协议，不能走 OpenAI 兼容生图。
+		a.Adaptor = &MdImageAdaptor{}
+		if info.ChannelBaseUrl == "" || info.ChannelBaseUrl == constant.ChannelBaseURLs[constant.ChannelTypeTencent] {
+			info.ChannelBaseUrl = tokenHubBaseURL
+		}
 	case IsVegaImageModel(model) && info.RelayMode == relayconstant.RelayModeImagesGenerations:
 		// WAND-Vega 生图是异步任务协议，不能走 OpenAI 兼容生图。
 		a.Adaptor = &VegaImageAdaptor{}
