@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, test } from 'vitest'
 
+import type { PriceDisplay } from '../model-pricing-core'
 import {
   buildModelSnapshots,
   getModeLabel,
@@ -28,7 +29,6 @@ import {
   type ModelPricingSnapshotInput,
 } from '../model-pricing-snapshots'
 import { usdToDisplayValue } from '../pricing-currency'
-import type { PriceDisplay } from '../model-pricing-core'
 
 const identity = (key: string) => key
 
@@ -52,6 +52,7 @@ function snapshotInput(overrides: Partial<ModelPricingSnapshotInput> = {}) {
     billingMode: JSON.stringify(empty),
     billingExpr: JSON.stringify(empty),
     billingDurationPrice: JSON.stringify(empty),
+    billingTokenPrice: JSON.stringify(empty),
     ...overrides,
   }
 }
@@ -60,6 +61,12 @@ const perDurationInput = (prices: Record<string, number>) =>
   snapshotInput({
     billingMode: JSON.stringify({ 'seedance-video': 'per_duration' }),
     billingDurationPrice: JSON.stringify({ 'seedance-video': prices }),
+  })
+
+const videoTokenInput = (prices: Record<string, number>) =>
+  snapshotInput({
+    billingMode: JSON.stringify({ 'seedance-video': 'video_token' }),
+    billingTokenPrice: JSON.stringify({ 'seedance-video': prices }),
   })
 
 describe('model pricing snapshots - per-duration billing', () => {
@@ -91,9 +98,7 @@ describe('model pricing snapshots - per-duration billing', () => {
     expect(getPriceSummary(row, identity)).toBe(
       '720p $0.027 · 1080p $0.041 · 4k $0.081'
     )
-    expect(getPriceDetail(row, identity)).toBe(
-      'Charged by generated duration'
-    )
+    expect(getPriceDetail(row, identity)).toBe('Charged by generated duration')
   })
 
   test('isBasePricingUnset treats per-duration as configured', () => {
@@ -104,6 +109,46 @@ describe('model pricing snapshots - per-duration billing', () => {
   test('snapshot signature captures resolution price changes', () => {
     const [before] = buildModelSnapshots(perDurationInput({ '720p': 0.027 }))
     const [after] = buildModelSnapshots(perDurationInput({ '720p': 0.031 }))
+
+    expect(getSnapshotSignature(before)).not.toBe(getSnapshotSignature(after))
+  })
+})
+
+describe('model pricing snapshots - video token billing', () => {
+  test('buildModelSnapshots infers video-token mode and per-resolution token prices', () => {
+    const rows = buildModelSnapshots(
+      videoTokenInput({ '720p': 1.2, '1080p': 1.8 })
+    )
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].billingMode).toBe('video-token')
+    expect(rows[0].tokenPrices).toEqual({ '720p': '1.2', '1080p': '1.8' })
+    expect(rows[0].hasConflict).toBe(false)
+  })
+
+  test('getModeLabel maps video-token to its display label', () => {
+    expect(getModeLabel('video-token')).toBe('Video Token')
+  })
+
+  test('video-token price summary lists each configured resolution per 1M tokens', () => {
+    const [row] = buildModelSnapshots(
+      videoTokenInput({ '720p': 1.2, '1080p': 1.8 })
+    )
+
+    expect(getPriceSummary(row, identity)).toBe(
+      '720p $1.2/1M tokens · 1080p $1.8/1M tokens'
+    )
+    expect(getPriceDetail(row, identity)).toBe('Charged by video tokens')
+  })
+
+  test('isBasePricingUnset treats video-token as configured', () => {
+    const [row] = buildModelSnapshots(videoTokenInput({ '1080p': 1.8 }))
+    expect(isBasePricingUnset(row)).toBe(false)
+  })
+
+  test('snapshot signature captures token price changes', () => {
+    const [before] = buildModelSnapshots(videoTokenInput({ '1080p': 1.8 }))
+    const [after] = buildModelSnapshots(videoTokenInput({ '1080p': 2.4 }))
 
     expect(getSnapshotSignature(before)).not.toBe(getSnapshotSignature(after))
   })

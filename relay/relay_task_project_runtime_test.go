@@ -85,3 +85,61 @@ func TestResolveOriginTaskRejectsProjectModelForbiddenRemix(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, taskErr.StatusCode)
 	assert.Equal(t, "project_model_forbidden", taskErr.Code)
 }
+
+// remix 请求通常不带 size/seconds，视频 token 计费必须复用原任务冻结的规格，
+// 否则会按默认 720p 重新估算、与首次提交的额度脱节。
+func TestResolveOriginTaskReusesVideoTokenBillingSpec(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	model.DB = db
+	model.LOG_DB = db
+	t.Cleanup(func() {
+		model.DB = previousDB
+		model.LOG_DB = previousLogDB
+	})
+	require.NoError(t, db.AutoMigrate(
+		&model.User{},
+		&model.Task{},
+		&model.Channel{},
+	))
+
+	user := &model.User{Username: "remix-video-token-user", Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(user).Error)
+	require.NoError(t, db.Create(&model.Channel{Id: 72, Name: "video-token-channel", Key: "upstream-key", Status: common.ChannelStatusEnabled}).Error)
+	require.NoError(t, db.Create(&model.Task{
+		TaskID:    "origin-video-token-task",
+		UserId:    user.Id,
+		ChannelId: 72,
+		Properties: model.Properties{
+			OriginModelName: "seedance-video",
+		},
+		PrivateData: model.TaskPrivateData{
+			BillingContext: &model.TaskBillingContext{
+				GroupRatio:      1,
+				OriginModelName: "seedance-video",
+				BillingMode:     "video_token",
+				Resolution:      "1080p",
+				TokenPrice:      1.8,
+				EstimatedTokens: 243000,
+			},
+		},
+	}).Error)
+
+	writer := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(writer)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos/origin-video-token-task/remix", nil)
+	c.Params = append(c.Params, gin.Param{Key: "video_id", Value: "origin-video-token-task"})
+
+	info := &relaycommon.RelayInfo{
+		UserId:        user.Id,
+		ChannelMeta:   &relaycommon.ChannelMeta{ChannelId: 72},
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{},
+	}
+	taskErr := ResolveOriginTask(c, info)
+	require.Nil(t, taskErr)
+	require.NotNil(t, info.VideoBillingSpec)
+	assert.Equal(t, "1080p", info.VideoBillingSpec.Resolution)
+	assert.Equal(t, int64(243000), info.VideoBillingSpec.EstimatedTokens)
+	assert.Equal(t, 1.8, info.VideoBillingSpec.TokenPrice)
+}

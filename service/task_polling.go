@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
@@ -659,25 +660,32 @@ func truncateBase64(s string) string {
 }
 
 // settleTaskBillingOnComplete 任务完成时的统一计费调整。
-// 优先级：1. adaptor.AdjustBillingOnComplete 返回正数 → 使用 adaptor 计算的额度
+// 优先级：1. 视频 token 计费 → 按上游 token 用量与冻结单价重算
 //
-//  2. taskResult.TotalTokens > 0 → 按 token 重算
-//  3. 都不满足 → 保持预扣额度不变
+//  2. adaptor.AdjustBillingOnComplete 返回正数 → 使用 adaptor 计算的额度
+//  3. taskResult.TotalTokens > 0 → 按 token 重算
+//  4. 都不满足 → 保持预扣额度不变
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
-	// 0. 按次计费的任务不做差额结算
+	// 0. 视频 token 计费的额度只取决于 token 用量与提交时冻结的单价，
+	//    不能被「按次计费」短路，也不进入 modelRatio 重算。
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.BillingMode == billing_setting.BillingModeVideoToken {
+		RecalculateTaskQuotaByVideoTokens(ctx, task, taskResult.TotalTokens)
+		return
+	}
+	// 1. 按次计费的任务不做差额结算
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
 		return
 	}
-	// 1. 优先让 adaptor 决定最终额度
+	// 2. 优先让 adaptor 决定最终额度
 	if actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult); actualQuota > 0 {
 		RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
 		return
 	}
-	// 2. 回退到 token 重算
+	// 3. 回退到 token 重算
 	if taskResult.TotalTokens > 0 {
 		RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens)
 		return
 	}
-	// 3. 无调整，保持预扣额度
+	// 4. 无调整，保持预扣额度
 }

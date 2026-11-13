@@ -58,6 +58,8 @@ export type PricingModel = {
   billing_expr?: string
   /** USD price per second by output resolution (keys like "720p"/"1080p"/"4k"/"default") for per-duration billing */
   billing_duration_price?: Record<string, number>
+  /** USD price per 1M video tokens by output resolution for video token billing */
+  billing_token_price?: Record<string, number>
   /** Pricing version returned by backend, useful for cache busting */
   pricing_version?: string
   /**

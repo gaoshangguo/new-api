@@ -40,6 +40,9 @@ export function ModelBillingModeBadge(props: ModelBillingModeBadgeProps) {
   } else if (props.model.billing_mode === 'per_duration') {
     label = t('Per-duration')
     variant = 'info'
+  } else if (props.model.billing_mode === 'video_token') {
+    label = t('Video Token')
+    variant = 'info'
   } else if (isTokenBasedModel(props.model)) {
     label = t('Token-based')
     variant = 'info'

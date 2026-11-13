@@ -193,6 +193,12 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hosttypes.PriceData, error) {
 	groupRatioInfo := HandleGroupRatio(c, info)
 
+	// 视频按 token 计费：单价按输出分辨率档位查表，额度由估算 token 数与冻结单价计算，
+	// 任务完成后由轮询结算按上游实际 token 数补差。
+	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeVideoToken {
+		return modelPriceHelperVideoToken(c, info, groupRatioInfo)
+	}
+
 	modelPrice, success := ratio_setting.GetModelPrice(info.OriginModelName, true)
 	usePrice := success
 	var modelRatio float64
@@ -268,6 +274,51 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 	return priceData, nil
 }
 
+// modelPriceHelperVideoToken 计算视频按 token 计费的预扣额度。
+//
+// 提交阶段还没有上游用量，token 数由请求规格估算；单价按输出分辨率档位
+// 从 billing_token_price 表读取（美元/百万 token）。
+// 单价与估算 token 会写入 info.VideoBillingSpec，供任务快照与轮询差额结算使用。
+func modelPriceHelperVideoToken(c *gin.Context, info *relaycommon.RelayInfo, groupRatioInfo hosttypes.GroupRatioInfo) (hosttypes.PriceData, error) {
+	spec := info.VideoBillingSpec
+	if spec == nil || spec.EstimatedTokens <= 0 {
+		return hosttypes.PriceData{}, fmt.Errorf("model %s is configured as video_token but the video billing spec is invalid", info.OriginModelName)
+	}
+
+	unitPrice, matchedTier, ok := billing_setting.GetBillingTokenPrice(info.OriginModelName, spec.Resolution)
+	if !ok || unitPrice <= 0 {
+		return hosttypes.PriceData{}, modelPriceNotConfiguredError(info.OriginModelName, info.UserId)
+	}
+	spec.Resolution = matchedTier
+	spec.TokenPrice = unitPrice
+
+	// 单价是美元/百万 token，先换算成美元金额再按 QuotaPerUnit 转成额度；
+	// 饱和转换失败时直接拒绝预扣，避免超大额度回绕成负扣费。
+	quota, err := common.QuotaRoundStrict(float64(spec.EstimatedTokens) / 1_000_000 * unitPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+	if err != nil {
+		return hosttypes.PriceData{}, err
+	}
+
+	freeModel := false
+	if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume && groupRatioInfo.GroupRatio == 0 {
+		quota = 0
+		freeModel = true
+	}
+
+	priceData := hosttypes.PriceData{
+		FreeModel:         freeModel,
+		Quota:             quota,
+		QuotaToPreConsume: quota,
+		GroupRatioInfo:    groupRatioInfo,
+		PriceVersionId:    model.GetCurrentPriceVersionId(),
+	}
+	if common.DebugEnabled {
+		logger.LogDebug(c, "model_price_helper_video_token result: model=%s resolution=%s tokens=%d unitPrice=%.6f groupRatio=%.4f quota=%d", info.OriginModelName, spec.Resolution, spec.EstimatedTokens, unitPrice, groupRatioInfo.GroupRatio, quota)
+	}
+	info.PriceData = priceData
+	return priceData, nil
+}
+
 func HasModelBillingConfig(modelName string) bool {
 	if _, ok := ratio_setting.GetModelPrice(modelName, false); ok {
 		return true
@@ -282,6 +333,9 @@ func HasModelBillingConfig(modelName string) bool {
 	case billing_setting.BillingModePerDuration:
 		price, ok := billing_setting.GetBillingDurationPrice(modelName)
 		return ok && price > 0
+	case billing_setting.BillingModeVideoToken:
+		_, _, ok := billing_setting.GetBillingTokenPrice(modelName, "")
+		return ok
 	default:
 		return false
 	}

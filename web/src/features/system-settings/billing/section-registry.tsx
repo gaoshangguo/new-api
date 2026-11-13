@@ -41,6 +41,7 @@ const getModelDefaults = (settings: BillingSettings) => ({
   BillingMode: settings['billing_setting.billing_mode'],
   BillingExpr: settings['billing_setting.billing_expr'],
   BillingDurationPrice: settings['billing_setting.billing_duration_price'],
+  BillingTokenPrice: settings['billing_setting.billing_token_price'],
 })
 
 const getGroupDefaults = (settings: BillingSettings) => ({

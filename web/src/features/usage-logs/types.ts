@@ -196,6 +196,13 @@ export interface LogOtherData {
   expr_b64?: string
   matched_tier?: string
   request_rules?: RequestRuleTrace[]
+  // Video token billing fields, set by backend when billing_mode === 'video_token'.
+  // resolution is the normalized tier, token_price is USD per 1M tokens and
+  // token_source is either "upstream" or "estimate".
+  resolution?: string
+  video_tokens?: number
+  token_price?: number
+  token_source?: string
   reasoning_effort?: string
   image?: boolean
   image_ratio?: number

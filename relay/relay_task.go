@@ -126,6 +126,15 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 			for s, f := range originTask.PrivateData.BillingContext.OtherRatios {
 				info.PriceData.AddOtherRatio(s, f)
 			}
+			// 视频 token 计费：remix 请求通常省略尺寸/时长，复用原任务的规格快照，
+			// 单价在预扣阶段按当前价格表重新解析。
+			if bc := originTask.PrivateData.BillingContext; bc.BillingMode == billing_setting.BillingModeVideoToken && bc.EstimatedTokens > 0 {
+				info.VideoBillingSpec = &relaycommon.VideoBillingSpec{
+					Resolution:      bc.Resolution,
+					EstimatedTokens: bc.EstimatedTokens,
+					TokenPrice:      bc.TokenPrice,
+				}
+			}
 		} else {
 			// 旧的 remix 逻辑：直接从 task data 解析 seconds 和 size（如果存在）
 			var taskData map[string]interface{}
@@ -191,7 +200,26 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		info.PublicTaskID = model.GenerateTaskID()
 	}
 
-	// 4. 价格计算：基础模型价格
+	// 4. 计费估算：让适配器根据用户请求提供 OtherRatios（时长、分辨率等）。
+	//    必须在价格计算之前调用：视频 token 计费要用适配器解析出的时长校正估算。
+	//    ResolveOriginTask 可能已在 remix 路径中预设了 OtherRatios，此处合并。
+	billingMode := billing_setting.GetBillingMode(modelName)
+	estimatedRatios := adaptor.EstimateBilling(c, info)
+	if billingMode == billing_setting.BillingModeVideoToken {
+		if info.VideoBillingSpec == nil {
+			// remix 之外的路径都从请求规格解析；remix 已由 ResolveOriginTask 复用原任务规格。
+			req, _ := relaycommon.GetTaskRequest(c)
+			spec := relaycommon.ResolveVideoBillingSpec(req)
+			info.VideoBillingSpec = &spec
+		}
+		if info.Action != constant.TaskActionRemix {
+			if seconds := estimatedRatios[relaycommon.OtherRatioSeconds]; seconds > 0 {
+				info.VideoBillingSpec.SetSeconds(int64(seconds))
+			}
+		}
+	}
+
+	// 5. 价格计算：基础模型价格 / 视频 token 单价
 	info.OriginModelName = modelName
 	priceData, err := helper.ModelPriceHelperPerCall(c, info)
 	if err != nil {
@@ -199,26 +227,25 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 	info.PriceData = priceData
 
-	// 5. 计费估算：让适配器根据用户请求提供 OtherRatios（时长、分辨率等）
-	//    必须在 ModelPriceHelperPerCall 之后调用（它会重建 PriceData）。
-	//    ResolveOriginTask 可能已在 remix 路径中预设了 OtherRatios，此处合并。
-	if estimatedRatios := adaptor.EstimateBilling(c, info); len(estimatedRatios) > 0 {
+	// 6. 合并适配器返回的 OtherRatios（视频 token 计费不使用倍率，避免与 token 用量重复计算）。
+	if billingMode != billing_setting.BillingModeVideoToken {
 		for k, v := range estimatedRatios {
 			info.PriceData.AddOtherRatio(k, v)
 		}
 	}
 
-	// 6. 将 OtherRatios 应用到基础额度（饱和转换，防止溢出成负数）。
+	// 7. 将 OtherRatios 应用到基础额度（饱和转换，防止溢出成负数）。
 	//    按时长计费模型必须应用时长/分辨率倍率，不受 TaskPricePatches 豁免。
-	if !common.StringsContains(constant.TaskPricePatches, modelName) ||
-		billing_setting.GetBillingMode(modelName) == billing_setting.BillingModePerDuration {
+	if billingMode != billing_setting.BillingModeVideoToken &&
+		(!common.StringsContains(constant.TaskPricePatches, modelName) ||
+			billingMode == billing_setting.BillingModePerDuration) {
 		quotaWithRatios := info.PriceData.ApplyOtherRatiosToFloat(float64(info.PriceData.Quota))
 		quota, clamp := common.QuotaFromFloatChecked(quotaWithRatios)
 		info.PriceData.Quota = quota
 		noteTaskQuotaClamp(info, clamp)
 	}
 
-	// 7. 预扣费（仅首次 — 重试时 info.Billing 已存在，跳过）
+	// 8. 预扣费（仅首次 — 重试时 info.Billing 已存在，跳过）
 	if info.Billing == nil && !info.PriceData.FreeModel {
 		info.ForcePreConsume = true
 		if apiErr := service.PreConsumeBilling(c, info.PriceData.Quota, info); apiErr != nil {
@@ -226,13 +253,13 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		}
 	}
 
-	// 8. 构建请求体
+	// 9. 构建请求体
 	requestBody, err := adaptor.BuildRequestBody(c, info)
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "build_request_failed", http.StatusInternalServerError)
 	}
 
-	// 9. 发送请求
+	// 10. 发送请求
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
@@ -242,7 +269,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
 	}
 
-	// 10. 返回 OtherRatios 给下游（header 必须在 DoResponse 写 body 之前设置）
+	// 11. 返回 OtherRatios 给下游（header 必须在 DoResponse 写 body 之前设置）
 	otherRatios := info.PriceData.OtherRatios()
 	if otherRatios == nil {
 		otherRatios = map[string]float64{}
@@ -250,20 +277,23 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	ratiosJSON, _ := common.Marshal(otherRatios)
 	c.Header("X-New-Api-Other-Ratios", string(ratiosJSON))
 
-	// 11. 解析响应
+	// 12. 解析响应
 	upstreamTaskID, taskData, taskErr := adaptor.DoResponse(c, resp, info)
 	if taskErr != nil {
 		return nil, taskErr
 	}
 
-	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
+	// 13. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios。
+	//     视频 token 计费的额度只随上游 token 用量变化，不走倍率重算。
 	finalQuota := info.PriceData.Quota
-	if adjustedRatios := adaptor.AdjustBillingOnSubmit(info, taskData); len(adjustedRatios) > 0 {
-		if adjustedQuota, ok := recalcQuotaFromRatios(info, adjustedRatios); ok {
-			// 基于调整后的 ratios 重新计算 quota
-			finalQuota = adjustedQuota
-			info.PriceData.ReplaceOtherRatios(adjustedRatios)
-			info.PriceData.Quota = finalQuota
+	if billingMode != billing_setting.BillingModeVideoToken {
+		if adjustedRatios := adaptor.AdjustBillingOnSubmit(info, taskData); len(adjustedRatios) > 0 {
+			if adjustedQuota, ok := recalcQuotaFromRatios(info, adjustedRatios); ok {
+				// 基于调整后的 ratios 重新计算 quota
+				finalQuota = adjustedQuota
+				info.PriceData.ReplaceOtherRatios(adjustedRatios)
+				info.PriceData.Quota = finalQuota
+			}
 		}
 	}
 

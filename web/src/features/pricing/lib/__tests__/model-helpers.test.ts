@@ -18,8 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, test } from 'vitest'
 
-import { isPerDurationModel, isTokenBasedModel } from '../model-helpers'
 import type { PricingModel } from '../../types'
+import {
+  isPerDurationModel,
+  isTokenBasedModel,
+  isVideoTokenModel,
+} from '../model-helpers'
 
 function baseModel(overrides: Partial<PricingModel> = {}): PricingModel {
   return {
@@ -37,7 +41,10 @@ describe('billing-mode helpers', () => {
   test('isPerDurationModel requires per_duration mode with a duration price map', () => {
     expect(
       isPerDurationModel(
-        baseModel({ billing_mode: 'per_duration', billing_duration_price: { '1080p': 0.09 } })
+        baseModel({
+          billing_mode: 'per_duration',
+          billing_duration_price: { '1080p': 0.09 },
+        })
       )
     ).toBe(true)
     expect(
@@ -57,5 +64,25 @@ describe('billing-mode helpers', () => {
   test('isTokenBasedModel matches quota_type 0', () => {
     expect(isTokenBasedModel(baseModel({ quota_type: 0 }))).toBe(true)
     expect(isTokenBasedModel(baseModel({ quota_type: 1 }))).toBe(false)
+  })
+
+  test('isVideoTokenModel requires video_token mode with a token price map', () => {
+    expect(
+      isVideoTokenModel(
+        baseModel({
+          billing_mode: 'video_token',
+          billing_token_price: { '1080p': 1.8 },
+        })
+      )
+    ).toBe(true)
+    expect(isVideoTokenModel(baseModel({ billing_mode: 'video_token' }))).toBe(
+      false
+    )
+    expect(
+      isVideoTokenModel(
+        baseModel({ billing_mode: 'video_token', billing_token_price: {} })
+      )
+    ).toBe(false)
+    expect(isVideoTokenModel(baseModel())).toBe(false)
   })
 })

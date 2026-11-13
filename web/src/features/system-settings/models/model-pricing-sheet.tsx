@@ -48,10 +48,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import {
-  InputGroup,
-  InputGroupAddon,
-} from '@/components/ui/input-group'
+import { InputGroup, InputGroupAddon } from '@/components/ui/input-group'
 import {
   Sheet,
   SheetContent,
@@ -67,6 +64,7 @@ import {
   DURATION_RESOLUTION_KEYS,
   EMPTY_LANE_ENABLED,
   EMPTY_LANE_PRICES,
+  TOKEN_PRICE_FIELD_BY_KEY,
   buildPreviewRows,
   createInitialLaneState,
   createModelPricingSchema,
@@ -76,15 +74,20 @@ import {
   numericDraftRegex,
   ratioFieldByLane,
   toNumberOrNull,
+  tokenResolutionTitleKeys,
   type DurationResolutionKey,
   type LaneKey,
   type ModelPricingFormValues,
   type ModelRatioData,
   type PricingMode,
 } from './model-pricing-core'
-import { CurrencyPriceInput, PriceInput, PriceLane } from './model-pricing-inputs'
-import { formatPricingNumber } from './pricing-format'
+import {
+  CurrencyPriceInput,
+  PriceInput,
+  PriceLane,
+} from './model-pricing-inputs'
 import { usePricingCurrency } from './pricing-currency'
+import { formatPricingNumber } from './pricing-format'
 import { TieredPricingEditor } from './tiered-pricing-editor'
 
 export type { ModelRatioData } from './model-pricing-core'
@@ -179,6 +182,10 @@ export const ModelPricingEditorPanel = forwardRef<
       durationPrice1080p: '',
       durationPrice4k: '',
       durationPriceDefault: '',
+      tokenPrice720p: '',
+      tokenPrice1080p: '',
+      tokenPrice4k: '',
+      tokenPriceDefault: '',
     },
   })
 
@@ -200,12 +207,18 @@ export const ModelPricingEditorPanel = forwardRef<
         durationPrice1080p: editData.durationPrices?.['1080p'] || '',
         durationPrice4k: editData.durationPrices?.['4k'] || '',
         durationPriceDefault: editData.durationPrices?.default || '',
+        tokenPrice720p: editData.tokenPrices?.['720p'] || '',
+        tokenPrice1080p: editData.tokenPrices?.['1080p'] || '',
+        tokenPrice4k: editData.tokenPrices?.['4k'] || '',
+        tokenPriceDefault: editData.tokenPrices?.default || '',
       })
       let nextMode: PricingMode
       if (editData.billingMode === 'tiered_expr') {
         nextMode = 'tiered_expr'
       } else if (editData.billingMode === 'per-duration') {
         nextMode = 'per-duration'
+      } else if (editData.billingMode === 'video-token') {
+        nextMode = 'video-token'
       } else if (editData.price) {
         nextMode = 'per-request'
       } else {
@@ -229,6 +242,10 @@ export const ModelPricingEditorPanel = forwardRef<
         durationPrice1080p: '',
         durationPrice4k: '',
         durationPriceDefault: '',
+        tokenPrice720p: '',
+        tokenPrice1080p: '',
+        tokenPrice4k: '',
+        tokenPriceDefault: '',
       })
       setPricingMode('per-token')
       setBillingExpr('')
@@ -423,6 +440,18 @@ export const ModelPricingEditorPanel = forwardRef<
     }
 
     if (
+      pricingMode === 'video-token' &&
+      !DURATION_RESOLUTION_KEYS.some((key) => {
+        const price = toNumberOrNull(
+          form.getValues(TOKEN_PRICE_FIELD_BY_KEY[key])
+        )
+        return price !== null && price > 0
+      })
+    ) {
+      nextWarnings.push(t('At least one token price is required.'))
+    }
+
+    if (
       pricingMode === 'per-token' &&
       toNumberOrNull(promptPrice) === null &&
       laneConfigs.some(
@@ -461,6 +490,21 @@ export const ModelPricingEditorPanel = forwardRef<
       }
     }
 
+    if (pricingMode === 'video-token') {
+      const hasValidPrice = DURATION_RESOLUTION_KEYS.some((key) => {
+        const price = toNumberOrNull(
+          form.getValues(TOKEN_PRICE_FIELD_BY_KEY[key])
+        )
+        return price !== null && price > 0
+      })
+      if (!hasValidPrice) {
+        form.setError('tokenPriceDefault', {
+          message: t('At least one token price is required.'),
+        })
+        return false
+      }
+    }
+
     if (
       pricingMode === 'per-token' &&
       toNumberOrNull(promptPrice) === null &&
@@ -490,11 +534,15 @@ export const ModelPricingEditorPanel = forwardRef<
 
   const buildSubmitData = useCallback(
     (values: ModelPricingFormValues) => {
-      const durationPrices: Partial<Record<DurationResolutionKey, string>> =
-        {}
+      const durationPrices: Partial<Record<DurationResolutionKey, string>> = {}
       DURATION_RESOLUTION_KEYS.forEach((key) => {
         const value = values[DURATION_PRICE_FIELD_BY_KEY[key]]
         if (value && value !== '') durationPrices[key] = value
+      })
+      const tokenPrices: Partial<Record<DurationResolutionKey, string>> = {}
+      DURATION_RESOLUTION_KEYS.forEach((key) => {
+        const value = values[TOKEN_PRICE_FIELD_BY_KEY[key]]
+        if (value && value !== '') tokenPrices[key] = value
       })
 
       const data: ModelRatioData = {
@@ -510,6 +558,8 @@ export const ModelPricingEditorPanel = forwardRef<
         audioCompletionRatio: values.audioCompletionRatio || '',
         durationPrices:
           Object.keys(durationPrices).length > 0 ? durationPrices : undefined,
+        tokenPrices:
+          Object.keys(tokenPrices).length > 0 ? tokenPrices : undefined,
       }
 
       if (pricingMode === 'tiered_expr') {
@@ -603,7 +653,7 @@ export const ModelPricingEditorPanel = forwardRef<
                   onValueChange={handleModeChange}
                   className='gap-4'
                 >
-                  <TabsList className='grid w-full grid-cols-4'>
+                  <TabsList className='grid w-full grid-cols-5'>
                     <TabsTrigger value='per-token'>
                       {t('Per-token')}
                     </TabsTrigger>
@@ -615,6 +665,9 @@ export const ModelPricingEditorPanel = forwardRef<
                     </TabsTrigger>
                     <TabsTrigger value='per-duration'>
                       {t('Per-duration')}
+                    </TabsTrigger>
+                    <TabsTrigger value='video-token'>
+                      {t('Video Token')}
                     </TabsTrigger>
                   </TabsList>
 
@@ -753,6 +806,52 @@ export const ModelPricingEditorPanel = forwardRef<
                       <p className='text-muted-foreground text-xs leading-5'>
                         {t(
                           'Cost per second of generated media by output resolution. Requests whose resolution is not listed fall back to the fallback price.'
+                        )}
+                      </p>
+                    </FieldGroup>
+                  </TabsContent>
+
+                  <TabsContent value='video-token' className='pt-0'>
+                    <FieldGroup className='gap-5'>
+                      <div className='grid gap-3 sm:grid-cols-2'>
+                        {DURATION_RESOLUTION_KEYS.map((key) => (
+                          <FormField
+                            key={key}
+                            control={form.control}
+                            name={TOKEN_PRICE_FIELD_BY_KEY[key]}
+                            render={({ field }) => (
+                              <FormItem className='contents'>
+                                <Field>
+                                  <FieldLabel>
+                                    {t(tokenResolutionTitleKeys[key])}
+                                  </FieldLabel>
+                                  <FormControl>
+                                    <InputGroup>
+                                      <InputGroupAddon>
+                                        {currency.symbol}
+                                      </InputGroupAddon>
+                                      <CurrencyPriceInput
+                                        value={field.value ?? ''}
+                                        placeholder='1.8'
+                                        currency={currency}
+                                        onUsdChange={field.onChange}
+                                        onBlur={field.onBlur}
+                                      />
+                                      <InputGroupAddon align='inline-end'>
+                                        {t('per 1M tokens')}
+                                      </InputGroupAddon>
+                                    </InputGroup>
+                                  </FormControl>
+                                  <FormMessage />
+                                </Field>
+                              </FormItem>
+                            )}
+                          />
+                        ))}
+                      </div>
+                      <p className='text-muted-foreground text-xs leading-5'>
+                        {t(
+                          'Cost per 1M video tokens by output resolution. Tokens are reported by the upstream when available and estimated from resolution, frame rate and duration otherwise.'
                         )}
                       </p>
                     </FieldGroup>

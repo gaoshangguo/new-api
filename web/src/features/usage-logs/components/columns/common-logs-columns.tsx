@@ -213,6 +213,17 @@ function buildTypeDetailSegments(
         muted: true,
       })
     }
+  } else if (other.billing_mode === 'video_token') {
+    const videoTokenParts = [t('Video Token')]
+    if (other.resolution) {
+      videoTokenParts.push(
+        other.resolution === 'default' ? t('Fallback') : other.resolution
+      )
+    }
+    if (other.token_price != null) {
+      videoTokenParts.push(formatPrice(other.token_price))
+    }
+    segments.push({ text: videoTokenParts.join(' · ') })
   } else {
     const modelPrice = other.model_price
     const isPerCall = isPerCallBilling(modelPrice)

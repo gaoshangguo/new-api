@@ -15,6 +15,14 @@ func setDurationPrices(model string, prices map[string]float64) func() {
 	}
 }
 
+// setTokenPrices 直接写入包级 token 单价配置并返回清理函数。
+func setTokenPrices(model string, prices map[string]float64) func() {
+	billingSetting.BillingTokenPrice[model] = prices
+	return func() {
+		delete(billingSetting.BillingTokenPrice, model)
+	}
+}
+
 func TestNormalizeResolution(t *testing.T) {
 	tests := []struct {
 		raw  string
@@ -96,4 +104,61 @@ func TestGetBillingDurationResolutionRatio(t *testing.T) {
 	// 未配置时长单价 → (0, false)
 	_, ok = GetBillingDurationResolutionRatio("unset-model", "1080p")
 	assert.False(t, ok)
+}
+
+func TestGetBillingTokenPriceTierPriority(t *testing.T) {
+	cleanup := setTokenPrices("video-token-test", map[string]float64{
+		"720p":  1.2,
+		"1080p": 1.8,
+		"4k":    4.5,
+	})
+	defer cleanup()
+
+	// 精确档位命中
+	price, tier, ok := GetBillingTokenPrice("video-token-test", "1080p")
+	require.True(t, ok)
+	assert.Equal(t, "1080p", tier)
+	assert.Equal(t, 1.8, price)
+
+	// 原始尺寸字符串归一化后命中
+	price, tier, ok = GetBillingTokenPrice("video-token-test", "3840x2160")
+	require.True(t, ok)
+	assert.Equal(t, "4k", tier)
+	assert.Equal(t, 4.5, price)
+
+	// 未知分辨率且无 default → 取已配置档位的最小值，避免算出 0 元
+	price, tier, ok = GetBillingTokenPrice("video-token-test", "1792x1024")
+	require.True(t, ok)
+	assert.Equal(t, "720p", tier)
+	assert.Equal(t, 1.2, price)
+
+	// default 优先于最小档位
+	cleanup2 := setTokenPrices("video-token-test", map[string]float64{
+		"720p":    1.2,
+		"1080p":   1.8,
+		"default": 1.5,
+	})
+	defer cleanup2()
+	price, tier, ok = GetBillingTokenPrice("video-token-test", "1792x1024")
+	require.True(t, ok)
+	assert.Equal(t, "default", tier)
+	assert.Equal(t, 1.5, price)
+
+	// 未配置 → false
+	_, _, ok = GetBillingTokenPrice("unset-model", "1080p")
+	assert.False(t, ok)
+}
+
+func TestGetBillingTokenPricesReturnsCopy(t *testing.T) {
+	cleanup := setTokenPrices("video-token-copy", map[string]float64{"1080p": 2})
+	defer cleanup()
+
+	prices := GetBillingTokenPrices("video-token-copy")
+	require.Equal(t, map[string]float64{"1080p": 2}, prices)
+
+	// 修改返回值不得影响包级配置
+	prices["1080p"] = 99
+	price, _, ok := GetBillingTokenPrice("video-token-copy", "1080p")
+	require.True(t, ok)
+	assert.Equal(t, 2.0, price)
 }

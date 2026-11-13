@@ -127,6 +127,12 @@ type TaskBillingContext struct {
 	OriginModelName string             `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
 	PerCallBilling  bool               `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
 	PriceVersionId  int                `json:"price_version_id,omitempty"`  // 提交时刻生效的价格版本（P0-28）
+	// 视频 token 计费（billing_mode = video_token）的规格快照：
+	// 单价在提交时冻结，轮询结算据此重算，改价不影响在途任务。
+	BillingMode     string  `json:"billing_mode,omitempty"`
+	Resolution      string  `json:"resolution,omitempty"`
+	TokenPrice      float64 `json:"token_price,omitempty"`      // 美元/百万 token
+	EstimatedTokens int64   `json:"estimated_tokens,omitempty"` // 提交时估算的 token 数
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）

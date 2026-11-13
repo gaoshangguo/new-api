@@ -443,3 +443,94 @@ func TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice(t *testing.T)
 	require.Equal(t, common.QuotaClampOverflow, clamp.Kind)
 	require.Nil(t, info.Billing)
 }
+
+func TestModelPriceHelperPerCallVideoToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":        `{"video-token-model":"video_token","video-token-unpriced":"video_token"}`,
+		"billing_setting.billing_token_price": `{"video-token-model":{"720p":1.2,"1080p":1.8}}`,
+		"group_ratio_setting.group_ratio":     `{"default":1,"free":0}`,
+	}))
+
+	newInfo := func(group, resolution string) *relaycommon.RelayInfo {
+		return &relaycommon.RelayInfo{
+			OriginModelName: "video-token-model",
+			UserId:          1,
+			UserGroup:       group,
+			UsingGroup:      group,
+			VideoBillingSpec: &relaycommon.VideoBillingSpec{
+				Resolution:      resolution,
+				Width:           1920,
+				Height:          1080,
+				FPS:             24,
+				Seconds:         5,
+				EstimatedTokens: 243000,
+			},
+		}
+	}
+
+	t.Run("1080p uses its own per-token price", func(t *testing.T) {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Set("group", "default")
+		info := newInfo("default", "1080p")
+
+		priceData, err := ModelPriceHelperPerCall(ctx, info)
+		require.NoError(t, err)
+		// 243000 / 1e6 * 1.8 * 500000 = 218700
+		require.Equal(t, 218700, priceData.Quota)
+		require.Equal(t, 218700, priceData.QuotaToPreConsume)
+		require.False(t, priceData.UsePrice)
+		require.Equal(t, 1.8, info.VideoBillingSpec.TokenPrice)
+		require.Equal(t, "1080p", info.VideoBillingSpec.Resolution)
+	})
+
+	t.Run("unknown resolution falls back to the configured fallback tier", func(t *testing.T) {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Set("group", "default")
+		info := newInfo("default", "1440p")
+
+		priceData, err := ModelPriceHelperPerCall(ctx, info)
+		require.NoError(t, err)
+		// 无 default 档时取已配置档位的最小值 720p：243000 / 1e6 * 1.2 * 500000 = 145800
+		require.Equal(t, 145800, priceData.Quota)
+		require.Equal(t, "720p", info.VideoBillingSpec.Resolution)
+		require.Equal(t, 1.2, info.VideoBillingSpec.TokenPrice)
+	})
+
+	t.Run("free group is charged nothing", func(t *testing.T) {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Set("group", "free")
+		info := newInfo("free", "1080p")
+
+		priceData, err := ModelPriceHelperPerCall(ctx, info)
+		require.NoError(t, err)
+		require.Equal(t, 0, priceData.Quota)
+	})
+
+	t.Run("missing spec is rejected", func(t *testing.T) {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Set("group", "default")
+		info := &relaycommon.RelayInfo{
+			OriginModelName: "video-token-model",
+			UserId:          1,
+			UserGroup:       "default",
+			UsingGroup:      "default",
+		}
+
+		_, err := ModelPriceHelperPerCall(ctx, info)
+		require.Error(t, err)
+	})
+
+	require.True(t, HasModelBillingConfig("video-token-model"))
+	require.False(t, HasModelBillingConfig("video-token-unpriced"))
+}

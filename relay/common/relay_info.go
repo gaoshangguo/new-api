@@ -155,6 +155,10 @@ type RelayInfo struct {
 
 	PriceData hosttypes.PriceData
 
+	// VideoBillingSpec 记录视频 token 计费的请求规格快照（分辨率档位、像素、
+	// 帧率、时长、估算 token 与冻结单价）。仅在 billing_mode = video_token 时非 nil。
+	VideoBillingSpec *VideoBillingSpec
+
 	// QuotaClamp is set (non-nil) when a quota conversion saturated at the
 	// int32 bound (or NaN fallback) while computing this request's charge.
 	// It is surfaced onto the consume/task log's admin_info for auditing.

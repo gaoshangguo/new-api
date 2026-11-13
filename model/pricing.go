@@ -37,6 +37,7 @@ type Pricing struct {
 	BillingMode            string                  `json:"billing_mode,omitempty"`
 	BillingExpr            string                  `json:"billing_expr,omitempty"`
 	BillingDurationPrice   map[string]float64      `json:"billing_duration_price,omitempty"`
+	BillingTokenPrice      map[string]float64      `json:"billing_token_price,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
 }
 
@@ -416,6 +417,16 @@ func updatePricing() {
 			if prices := billing_setting.GetBillingDurationPrices(model); len(prices) > 0 {
 				pricing.BillingMode = billingMode
 				pricing.BillingDurationPrice = prices
+			}
+		case billing_setting.BillingModeVideoToken:
+			if prices := billing_setting.GetBillingTokenPrices(model); len(prices) > 0 {
+				pricing.BillingMode = billingMode
+				pricing.BillingTokenPrice = prices
+				// 视频 token 计费是按用量计费，不是按次；清掉可能残留的按次字段，
+				// 避免定价页展示成固定价格。
+				pricing.QuotaType = 0
+				pricing.ModelPrice = 0
+				pricing.ModelRatio = 0
 			}
 		}
 		pricingMap = append(pricingMap, pricing)

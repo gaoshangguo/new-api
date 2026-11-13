@@ -127,3 +127,14 @@ export function isPerDurationModel(model: PricingModel): boolean {
     Object.keys(model.billing_duration_price).length > 0
   )
 }
+
+/**
+ * Check if model is billed by video token usage with resolution-based prices.
+ */
+export function isVideoTokenModel(model: PricingModel): boolean {
+  return (
+    model.billing_mode === 'video_token' &&
+    model.billing_token_price != null &&
+    Object.keys(model.billing_token_price).length > 0
+  )
+}

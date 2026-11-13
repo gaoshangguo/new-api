@@ -26,6 +26,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -747,7 +748,7 @@ func RelayTask(c *gin.Context) {
 		task.PrivateData.NodeName = common.NodeName
 		task.PrivateData.CallbackUrl = callbackURL
 		task.PrivateData.CallbackSecret = callbackSecret
-		task.PrivateData.BillingContext = &model.TaskBillingContext{
+		billingContext := &model.TaskBillingContext{
 			ModelPrice:      relayInfo.PriceData.ModelPrice,
 			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
 			ModelRatio:      relayInfo.PriceData.ModelRatio,
@@ -756,6 +757,16 @@ func RelayTask(c *gin.Context) {
 			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
 			PriceVersionId:  relayInfo.PriceData.PriceVersionId,
 		}
+		// 视频 token 计费：冻结提交时的分辨率档位、单价与 token 估算，
+		// 轮询结算不再读取可能已变更的配置，也不会被按次计费短路。
+		if spec := relayInfo.VideoBillingSpec; spec != nil {
+			billingContext.BillingMode = billing_setting.BillingModeVideoToken
+			billingContext.Resolution = spec.Resolution
+			billingContext.TokenPrice = spec.TokenPrice
+			billingContext.EstimatedTokens = spec.EstimatedTokens
+			billingContext.PerCallBilling = false
+		}
+		task.PrivateData.BillingContext = billingContext
 		task.Quota = result.Quota
 		task.Data = result.TaskData
 		task.Action = relayInfo.Action

@@ -49,6 +49,7 @@ export type ModelPricingSnapshotInput = {
   billingMode: string
   billingExpr: string
   billingDurationPrice: string
+  billingTokenPrice?: string
 }
 
 export type ModelPricingSnapshot = {
@@ -62,6 +63,7 @@ export type ModelPricingSnapshot = {
   audioRatio?: string
   audioCompletionRatio?: string
   durationPrices?: Partial<Record<DurationResolutionKey, string>>
+  tokenPrices?: Partial<Record<DurationResolutionKey, string>>
   billingMode?: string
   billingExpr?: string
   requestRuleExpr?: string
@@ -83,6 +85,7 @@ export const isBasePricingUnset = (snapshot?: ModelPricingSnapshot) =>
   !snapshot ||
   (snapshot.billingMode !== 'tiered_expr' &&
     snapshot.billingMode !== 'per-duration' &&
+    snapshot.billingMode !== 'video-token' &&
     !hasPricingValue(snapshot.price) &&
     !hasPricingValue(snapshot.ratio))
 
@@ -103,6 +106,7 @@ export const getModeLabel = (mode?: string) => {
   if (mode === 'per-request') return 'Per-request'
   if (mode === 'tiered_expr') return 'Expression'
   if (mode === 'per-duration') return 'Per-duration'
+  if (mode === 'video-token') return 'Video Token'
   return 'Per-token'
 }
 
@@ -112,6 +116,7 @@ export const getModeVariant = (
   if (mode === 'per-request') return 'warning'
   if (mode === 'tiered_expr') return 'info'
   if (mode === 'per-duration') return 'info'
+  if (mode === 'video-token') return 'info'
   return 'success'
 }
 
@@ -149,6 +154,21 @@ export const getPriceSummary = (
       .join(' · ')
   }
 
+  if (row.billingMode === 'video-token') {
+    const entries = DURATION_RESOLUTION_KEYS.filter((key) =>
+      hasPricingValue(row.tokenPrices?.[key])
+    )
+    if (entries.length === 0) return t('Unset price')
+    return entries
+      .map(
+        (key) =>
+          `${key} ${formatPrice(row.tokenPrices?.[key], display)}/${t(
+            '1M tokens'
+          )}`
+      )
+      .join(' · ')
+  }
+
   const inputPrice = ratioToPrice(row.ratio)
   if (!inputPrice) return t('Unset price')
 
@@ -183,6 +203,9 @@ export const getPriceDetail = (
   }
   if (row.billingMode === 'per-duration') {
     return t('Charged by generated duration')
+  }
+  if (row.billingMode === 'video-token') {
+    return t('Charged by video tokens')
   }
 
   const inputPrice = ratioToPrice(row.ratio)
@@ -223,6 +246,7 @@ export const buildModelSnapshots = ({
   billingMode,
   billingExpr,
   billingDurationPrice,
+  billingTokenPrice,
 }: ModelPricingSnapshotInput): ModelPricingSnapshot[] => {
   const priceMap = safeJsonParse<Record<string, number>>(modelPrice, {
     fallback: {},
@@ -267,6 +291,9 @@ export const buildModelSnapshots = ({
   const billingDurationPriceMap = safeJsonParse<
     Record<string, Record<string, number>>
   >(billingDurationPrice, { fallback: {}, context: 'billing duration price' })
+  const billingTokenPriceMap = safeJsonParse<
+    Record<string, Record<string, number>>
+  >(billingTokenPrice, { fallback: {}, context: 'billing token price' })
 
   const modelNames = new Set([
     ...Object.keys(priceMap),
@@ -280,6 +307,7 @@ export const buildModelSnapshots = ({
     ...Object.keys(billingModeMap),
     ...Object.keys(billingExprMap),
     ...Object.keys(billingDurationPriceMap),
+    ...Object.keys(billingTokenPriceMap),
   ])
 
   return [...modelNames].map((name) => {
@@ -297,6 +325,15 @@ export const buildModelSnapshots = ({
       DURATION_RESOLUTION_KEYS.forEach((key) => {
         if (rawDurationPrices[key] != null) {
           durationPrices[key] = String(rawDurationPrices[key])
+        }
+      })
+    }
+    const rawTokenPrices = billingTokenPriceMap[name]
+    const tokenPrices: Partial<Record<DurationResolutionKey, string>> = {}
+    if (rawTokenPrices) {
+      DURATION_RESOLUTION_KEYS.forEach((key) => {
+        if (rawTokenPrices[key] != null) {
+          tokenPrices[key] = String(rawTokenPrices[key])
         }
       })
     }
@@ -320,6 +357,7 @@ export const buildModelSnapshots = ({
         audioRatio: audio,
         audioCompletionRatio: audioCompletion,
         durationPrices,
+        tokenPrices,
         hasConflict: false,
       }
     }
@@ -337,6 +375,25 @@ export const buildModelSnapshots = ({
         audioRatio: audio,
         audioCompletionRatio: audioCompletion,
         durationPrices,
+        tokenPrices,
+        hasConflict: false,
+      }
+    }
+
+    if (modeForModel === 'video_token') {
+      return {
+        name,
+        billingMode: 'video-token',
+        price,
+        ratio,
+        cacheRatio: cache,
+        createCacheRatio: createCache,
+        completionRatio: completion,
+        imageRatio: image,
+        audioRatio: audio,
+        audioCompletionRatio: audioCompletion,
+        durationPrices,
+        tokenPrices,
         hasConflict: false,
       }
     }
@@ -352,6 +409,7 @@ export const buildModelSnapshots = ({
       audioRatio: audio,
       audioCompletionRatio: audioCompletion,
       durationPrices,
+      tokenPrices,
       billingMode: price !== '' ? 'per-request' : 'per-token',
       hasConflict:
         price !== '' &&
@@ -381,6 +439,15 @@ export const getSnapshotSignature = (snapshot?: ModelPricingSnapshot) => {
       ? DURATION_RESOLUTION_KEYS.reduce(
           (acc, key) => {
             acc[key] = snapshot.durationPrices?.[key] || ''
+            return acc
+          },
+          {} as Record<DurationResolutionKey, string>
+        )
+      : {},
+    tokenPrices: snapshot.tokenPrices
+      ? DURATION_RESOLUTION_KEYS.reduce(
+          (acc, key) => {
+            acc[key] = snapshot.tokenPrices?.[key] || ''
             return acc
           },
           {} as Record<DurationResolutionKey, string>

@@ -38,6 +38,10 @@ export const createModelPricingSchema = (t: (key: string) => string) =>
     durationPrice1080p: z.string().optional(),
     durationPrice4k: z.string().optional(),
     durationPriceDefault: z.string().optional(),
+    tokenPrice720p: z.string().optional(),
+    tokenPrice1080p: z.string().optional(),
+    tokenPrice4k: z.string().optional(),
+    tokenPriceDefault: z.string().optional(),
   })
 
 export type ModelPricingFormValues = z.infer<
@@ -49,6 +53,7 @@ export type PricingMode =
   | 'per-request'
   | 'tiered_expr'
   | 'per-duration'
+  | 'video-token'
 
 export type LaneKey =
   | 'completion'
@@ -87,6 +92,23 @@ export const durationResolutionTitleKeys: Record<
   default: 'Fallback price',
 }
 
+export const TOKEN_PRICE_FIELD_BY_KEY: Record<
+  DurationResolutionKey,
+  keyof ModelPricingFormValues
+> = {
+  '720p': 'tokenPrice720p',
+  '1080p': 'tokenPrice1080p',
+  '4k': 'tokenPrice4k',
+  default: 'tokenPriceDefault',
+}
+
+export const tokenResolutionTitleKeys: Record<DurationResolutionKey, string> = {
+  '720p': '720p token price',
+  '1080p': '1080p token price',
+  '4k': '4k token price',
+  default: 'Fallback token price',
+}
+
 export type ModelRatioData = {
   name: string
   price?: string
@@ -98,6 +120,7 @@ export type ModelRatioData = {
   audioRatio?: string
   audioCompletionRatio?: string
   durationPrices?: Partial<Record<DurationResolutionKey, string>>
+  tokenPrices?: Partial<Record<DurationResolutionKey, string>>
   billingMode?: PricingMode
   billingExpr?: string
   requestRuleExpr?: string
@@ -305,7 +328,26 @@ export function buildPreviewRows(
     })
     return rows.length > 0
       ? rows
-      : [{ key: 'durationPrice', label: t('Duration price'), value: t('Empty') }]
+      : [
+          {
+            key: 'durationPrice',
+            label: t('Duration price'),
+            value: t('Empty'),
+          },
+        ]
+  }
+
+  if (mode === 'video-token') {
+    return DURATION_RESOLUTION_KEYS.map((key) => {
+      const tokenPrice = values[TOKEN_PRICE_FIELD_BY_KEY[key]]
+      return {
+        key: `token-${key}`,
+        label: t(tokenResolutionTitleKeys[key]),
+        value: tokenPrice
+          ? `${display.symbol}${display.toDisplay(tokenPrice)}`
+          : t('Empty'),
+      }
+    })
   }
 
   return [

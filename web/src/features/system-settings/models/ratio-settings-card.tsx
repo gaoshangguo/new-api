@@ -118,6 +118,7 @@ const createModelSchema = (t: Translate) =>
     BillingMode: createJsonStringField(t),
     BillingExpr: createJsonStringField(t),
     BillingDurationPrice: createJsonStringField(t),
+    BillingTokenPrice: createJsonStringField(t),
   })
 
 const createGroupSchema = (t: Translate) =>
@@ -199,6 +200,7 @@ export function RatioSettingsCard({
     BillingDurationPrice: normalizeJsonString(
       modelDefaults.BillingDurationPrice
     ),
+    BillingTokenPrice: normalizeJsonString(modelDefaults.BillingTokenPrice),
   })
   const [savedModelValues, setSavedModelValues] = useState(
     modelNormalizedDefaults.current
@@ -239,6 +241,7 @@ export function RatioSettingsCard({
       BillingDurationPrice: formatJsonForTextarea(
         modelDefaults.BillingDurationPrice
       ),
+      BillingTokenPrice: formatJsonForTextarea(modelDefaults.BillingTokenPrice),
     },
   })
 
@@ -276,6 +279,7 @@ export function RatioSettingsCard({
       BillingDurationPrice: normalizeJsonString(
         modelDefaults.BillingDurationPrice
       ),
+      BillingTokenPrice: normalizeJsonString(modelDefaults.BillingTokenPrice),
     }
     setSavedModelValues(modelNormalizedDefaults.current)
 
@@ -341,12 +345,14 @@ export function RatioSettingsCard({
         BillingMode: normalizeJsonString(values.BillingMode),
         BillingExpr: normalizeJsonString(values.BillingExpr),
         BillingDurationPrice: normalizeJsonString(values.BillingDurationPrice),
+        BillingTokenPrice: normalizeJsonString(values.BillingTokenPrice),
       }
 
       const apiKeyMap: Record<string, string> = {
         BillingMode: 'billing_setting.billing_mode',
         BillingExpr: 'billing_setting.billing_expr',
         BillingDurationPrice: 'billing_setting.billing_duration_price',
+        BillingTokenPrice: 'billing_setting.billing_token_price',
       }
 
       const updates = (
@@ -475,6 +481,8 @@ export function RatioSettingsCard({
           'billing_setting.billing_expr': modelDefaults.BillingExpr,
           'billing_setting.billing_duration_price':
             modelDefaults.BillingDurationPrice,
+          'billing_setting.billing_token_price':
+            modelDefaults.BillingTokenPrice,
         }}
       />
     )

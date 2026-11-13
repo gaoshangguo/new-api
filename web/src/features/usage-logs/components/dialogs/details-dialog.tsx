@@ -226,6 +226,7 @@ function BillingBreakdown(props: {
   const isPerCall = isPerCallBilling(other.model_price)
   const isClaude = other.claude === true
   const isTieredExpr = other.billing_mode === 'tiered_expr'
+  const isVideoToken = other.billing_mode === 'video_token'
   const tieredSummary = getTieredBillingSummary(other)
 
   const rows: Array<{ label: string; value: string }> = []
@@ -255,6 +256,36 @@ function BillingBreakdown(props: {
       rows.push({
         label: t('Matched Tier'),
         value: t('No matching results'),
+      })
+    }
+  } else if (isVideoToken) {
+    rows.push({ label: t('Billing Mode'), value: t('Video Token') })
+    if (other.resolution) {
+      rows.push({
+        label: t('Resolution'),
+        value:
+          other.resolution === 'default' ? t('Fallback') : other.resolution,
+      })
+    }
+    if (other.video_tokens != null) {
+      rows.push({
+        label: t('Video tokens'),
+        value: other.video_tokens.toLocaleString(),
+      })
+    }
+    if (other.token_price != null) {
+      rows.push({
+        label: t('Token price'),
+        value: `${fmtPrice(other.token_price)}/${t('1M tokens')}`,
+      })
+    }
+    if (other.token_source) {
+      rows.push({
+        label: t('Token source'),
+        value:
+          other.token_source === 'upstream'
+            ? t('Upstream usage')
+            : t('Estimated'),
       })
     }
   } else if (isPerCall) {

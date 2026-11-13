@@ -23,8 +23,11 @@ import {
   useSystemConfigStore,
 } from '@/stores/system-config-store'
 
-import { formatDurationPriceSummary } from '../price'
 import type { PricingModel } from '../../types'
+import {
+  formatDurationPriceSummary,
+  formatVideoTokenPriceSummary,
+} from '../price'
 
 function baseModel(overrides: Partial<PricingModel> = {}): PricingModel {
   return {
@@ -75,5 +78,36 @@ describe('formatDurationPriceSummary', () => {
 
   test('returns empty string when the model has no per-duration price', () => {
     expect(formatDurationPriceSummary(baseModel())).toBe('')
+  })
+})
+
+describe('formatVideoTokenPriceSummary', () => {
+  beforeEach(() => {
+    useSystemConfigStore.setState({
+      config: {
+        ...useSystemConfigStore.getState().config,
+        currency: { ...DEFAULT_CURRENCY_CONFIG, quotaDisplayType: 'USD' },
+      },
+    })
+  })
+
+  test('uses the fallback per-1M-token price when configured', () => {
+    const model = baseModel({
+      billing_mode: 'video_token',
+      billing_token_price: { '720p': 1.2, default: 1.5 },
+    })
+    expect(formatVideoTokenPriceSummary(model)).toBe('$1.5')
+  })
+
+  test('falls back to the first finite resolution price', () => {
+    const model = baseModel({
+      billing_mode: 'video_token',
+      billing_token_price: { '1080p': 1.8 },
+    })
+    expect(formatVideoTokenPriceSummary(model)).toBe('$1.8')
+  })
+
+  test('returns empty string when the model has no token price', () => {
+    expect(formatVideoTokenPriceSummary(baseModel())).toBe('')
   })
 })

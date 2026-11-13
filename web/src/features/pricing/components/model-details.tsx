@@ -55,6 +55,7 @@ import {
   formatUptimePct,
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
+import { formatCurrencyFromUSD } from '@/lib/currency'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
@@ -72,7 +73,6 @@ import {
   getDisplayModelName,
   isTokenBasedModel,
 } from '../lib/model-helpers'
-import { formatCurrencyFromUSD } from '@/lib/currency'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import type {
   ModelCapability,
@@ -573,9 +573,7 @@ function ModelHeader(props: { model: PricingModel }) {
       </div>
       {aliases.length > 0 && (
         <div className='mt-2 flex flex-wrap items-center gap-1.5'>
-          <span className='text-muted-foreground text-xs'>
-            {t('Aliases')}:
-          </span>
+          <span className='text-muted-foreground text-xs'>{t('Aliases')}:</span>
           <CopyButton
             value={model.model_name || ''}
             size='sm'
@@ -749,6 +747,45 @@ function PriceSection(props: {
   }
 
   if (
+    props.model.billing_mode === 'video_token' &&
+    props.model.billing_token_price != null &&
+    Object.keys(props.model.billing_token_price).length > 0
+  ) {
+    const prices = props.model.billing_token_price
+    const entries = Object.entries(prices)
+    const formatted = (value: number) =>
+      formatCurrencyFromUSD(
+        props.showRechargePrice
+          ? (value * props.priceRate) / props.usdExchangeRate
+          : value,
+        { digitsLarge: 4, digitsSmall: 4, abbreviate: false }
+      )
+    return (
+      <section>
+        <SectionTitle>{t('Base Price')}</SectionTitle>
+        <div className='bg-muted/20 rounded-lg border'>
+          {entries.map(([resolution, price]) => (
+            <div
+              key={resolution}
+              className='flex items-baseline justify-between gap-4 border-b px-3 py-2 last:border-b-0'
+            >
+              <span className='text-muted-foreground text-sm'>
+                {resolution === 'default' ? t('Fallback price') : resolution}
+              </span>
+              <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
+                {formatted(price)}
+                <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+                  / {t('1M tokens')}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  if (
     props.model.billing_mode === 'per_duration' &&
     props.model.billing_duration_price != null &&
     Object.keys(props.model.billing_duration_price).length > 0
@@ -772,9 +809,7 @@ function PriceSection(props: {
               className='flex items-baseline justify-between gap-4 border-b px-3 py-2 last:border-b-0'
             >
               <span className='text-muted-foreground text-sm'>
-                {resolution === 'default'
-                  ? t('Fallback price')
-                  : resolution}
+                {resolution === 'default' ? t('Fallback price') : resolution}
               </span>
               <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
                 {formatted(price)}

@@ -1413,3 +1413,119 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
 }
+
+// ===========================================================================
+// Video token billing tests — settleTaskBillingOnComplete
+// ===========================================================================
+
+// seedVideoTokenTask 构造一个按 video_token 计费的任务：1080p、243000 估算 token、
+// 单价 $1.8/百万 token、分组倍率 1，预扣额度 243000/1e6*1.8*500000 = 218700。
+func seedVideoTokenTask(userID, channelID, tokenID, preConsumed int) *model.Task {
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext = &model.TaskBillingContext{
+		GroupRatio:      1,
+		OriginModelName: "test-video-model",
+		BillingMode:     "video_token",
+		Resolution:      "1080p",
+		TokenPrice:      1.8,
+		EstimatedTokens: 243000,
+	}
+	return task
+}
+
+func TestSettle_VideoTokenBillingChargesUpstreamTokens(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 40, 40, 40
+	const initQuota = 10_000_000
+	const tokenRemain = 5_000_000
+	const preConsumed = 218700
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-video-token-upstream", tokenRemain)
+	seedChannel(t, channelID)
+
+	task := seedVideoTokenTask(userID, channelID, tokenID, preConsumed)
+	// 视频 token 计费不能被「按次计费」短路，也不能被 adaptor 调整覆盖。
+	task.PrivateData.BillingContext.PerCallBilling = true
+
+	adaptor := &mockAdaptor{adjustReturn: 5000}
+	// 上游返回 250000 token：250000/1e6*1.8*500000 = 225000，需补扣 6300。
+	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, TotalTokens: 250000}
+
+	settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+
+	const wantQuota = 225000
+	const delta = wantQuota - preConsumed
+	assert.Equal(t, wantQuota, task.Quota)
+	assert.Equal(t, initQuota-delta, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain-delta, getTokenRemainQuota(t, tokenID))
+
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Equal(t, model.LogTypeConsume, log.Type)
+	assert.Equal(t, delta, log.Quota)
+	var other map[string]interface{}
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	assert.Equal(t, "video_token", other["billing_mode"])
+	assert.Equal(t, "1080p", other["resolution"])
+}
+
+func TestSettle_VideoTokenBillingFallsBackToEstimate(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 41, 41, 41
+	const initQuota = 10_000_000
+	const tokenRemain = 5_000_000
+	const preConsumed = 218700
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-video-token-estimate", tokenRemain)
+	seedChannel(t, channelID)
+
+	task := seedVideoTokenTask(userID, channelID, tokenID, preConsumed)
+	adaptor := &mockAdaptor{}
+	// 上游没有返回 token 用量：按提交时的估算结算，与预扣一致，不产生差额。
+	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess}
+
+	settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+
+	assert.Equal(t, preConsumed, task.Quota)
+	assert.Equal(t, initQuota, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
+	assert.Equal(t, int64(0), countLogs(t))
+}
+
+func TestSettle_VideoTokenBillingRefundsWhenUpstreamTokensLower(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 42, 42, 42
+	const initQuota = 10_000_000
+	const tokenRemain = 5_000_000
+	const preConsumed = 218700
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-video-token-refund", tokenRemain)
+	seedChannel(t, channelID)
+
+	task := seedVideoTokenTask(userID, channelID, tokenID, preConsumed)
+	adaptor := &mockAdaptor{}
+	// 上游返回 200000 token：200000/1e6*1.8*500000 = 180000，需退还 38700。
+	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, TotalTokens: 200000}
+
+	settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+
+	const wantQuota = 180000
+	const refund = preConsumed - wantQuota
+	assert.Equal(t, wantQuota, task.Quota)
+	assert.Equal(t, initQuota+refund, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain+refund, getTokenRemainQuota(t, tokenID))
+
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, refund, log.Quota)
+}

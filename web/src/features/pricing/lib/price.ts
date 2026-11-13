@@ -284,7 +284,38 @@ export function formatDurationPriceSummary(
   priceRate = 1,
   usdExchangeRate = 1
 ): string {
-  const prices = model.billing_duration_price
+  return formatResolutionPriceSummary(
+    model.billing_duration_price,
+    showWithRecharge,
+    priceRate,
+    usdExchangeRate
+  )
+}
+
+/**
+ * Format a compact per-1M-token price summary for video token billed models.
+ * Uses the fallback price when configured, otherwise the first finite price.
+ */
+export function formatVideoTokenPriceSummary(
+  model: PricingModel,
+  showWithRecharge = false,
+  priceRate = 1,
+  usdExchangeRate = 1
+): string {
+  return formatResolutionPriceSummary(
+    model.billing_token_price,
+    showWithRecharge,
+    priceRate,
+    usdExchangeRate
+  )
+}
+
+function formatResolutionPriceSummary(
+  prices: Record<string, number> | undefined,
+  showWithRecharge: boolean,
+  priceRate: number,
+  usdExchangeRate: number
+): string {
   if (!prices) return ''
 
   let value: number | undefined = prices.default

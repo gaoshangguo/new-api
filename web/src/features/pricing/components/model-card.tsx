@@ -34,11 +34,13 @@ import {
   getDisplayModelName,
   isPerDurationModel,
   isTokenBasedModel,
+  isVideoTokenModel,
 } from '../lib/model-helpers'
 import {
   formatDurationPriceSummary,
   formatPrice,
   formatRequestPrice,
+  formatVideoTokenPriceSummary,
 } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
@@ -151,9 +153,24 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         / {t('second')}
       </span>
     ) : (
-      <span className='text-muted-foreground text-sm'>
-        {t('Per-duration')}
+      <span className='text-muted-foreground text-sm'>{t('Per-duration')}</span>
+    )
+  } else if (isVideoTokenModel(props.model)) {
+    const tokenPrice = formatVideoTokenPriceSummary(
+      props.model,
+      showRechargePrice,
+      priceRate,
+      usdExchangeRate
+    )
+    priceSummary = tokenPrice ? (
+      <span className='text-muted-foreground whitespace-nowrap'>
+        <span className='text-foreground font-mono font-semibold'>
+          {tokenPrice}
+        </span>{' '}
+        / {t('1M tokens')}
       </span>
+    ) : (
+      <span className='text-muted-foreground text-sm'>{t('Video Token')}</span>
     )
   } else if (isTokenBased) {
     priceSummary = (
@@ -316,7 +333,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
 
       {/* Footer: left metadata and right performance summary share row alignment */}
       <div className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:mt-4'>
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 [grid-column:1] [grid-row:1]'>
+        <div className='[grid-column:1] [grid-row:1] flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
           {primaryGroup && (
             <span className='text-muted-foreground text-sm font-medium'>
               {primaryGroup}
@@ -324,9 +341,12 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           )}
           <ModelBillingModeBadge model={props.model} />
         </div>
-        <ModelPerfBadge perf={props.perf} className='row-span-2 self-start [grid-column:2] [grid-row:1] [grid-row-end:span-2]' />
+        <ModelPerfBadge
+          perf={props.perf}
+          className='[grid-column:2] [grid-row:1] row-span-2 [grid-row-end:span-2] self-start'
+        />
 
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs sm:gap-x-3 sm:gap-y-1 [grid-column:1] [grid-row:2]'>
+        <div className='[grid-column:1] [grid-row:2] flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs sm:gap-x-3 sm:gap-y-1'>
           {bottomTags.map((item) => (
             <span key={item} className='text-muted-foreground/70'>
               {item}

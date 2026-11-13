@@ -314,6 +314,7 @@ export function ModelMutateDrawer({
       'billing_setting.billing_mode': '{}',
       'billing_setting.billing_expr': '{}',
       'billing_setting.billing_duration_price': '{}',
+      'billing_setting.billing_token_price': '{}',
       'tool_price_setting.prices': '{}',
       TopupGroupRatio: '',
       GroupRatio: '',

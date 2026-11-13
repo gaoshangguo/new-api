@@ -79,6 +79,7 @@ type UpstreamRatioSyncProps = {
     'billing_setting.billing_mode': string
     'billing_setting.billing_expr': string
     'billing_setting.billing_duration_price': string
+    'billing_setting.billing_token_price': string
   }
 }
 
@@ -101,6 +102,7 @@ function optionKeyBySyncField(ratioType: string): string {
     billing_mode: 'billing_setting.billing_mode',
     billing_expr: 'billing_setting.billing_expr',
     billing_duration_price: 'billing_setting.billing_duration_price',
+    billing_token_price: 'billing_setting.billing_token_price',
   }
   if (explicit[ratioType]) return explicit[ratioType]
   return ratioType
@@ -312,6 +314,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       'billing_setting.billing_duration_price': parseJsonRecord<
         Record<string, number>
       >(modelRatios['billing_setting.billing_duration_price']),
+      'billing_setting.billing_token_price': parseJsonRecord<
+        Record<string, number>
+      >(modelRatios['billing_setting.billing_token_price']),
     }
   }, [modelRatios])
 
@@ -355,6 +360,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         },
         'billing_setting.billing_duration_price': {
           ...currentRatios['billing_setting.billing_duration_price'],
+        },
+        'billing_setting.billing_token_price': {
+          ...currentRatios['billing_setting.billing_token_price'],
         },
       }
 

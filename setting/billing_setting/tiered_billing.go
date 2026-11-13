@@ -14,13 +14,18 @@ const (
 	BillingModeRatio          = "ratio"
 	BillingModeTieredExpr     = "tiered_expr"
 	BillingModePerDuration    = "per_duration"
+	BillingModeVideoToken     = "video_token"
 	BillingModeField          = "billing_mode"
 	BillingExprField          = "billing_expr"
 	BillingDurationPriceField = "billing_duration_price"
+	BillingTokenPriceField    = "billing_token_price"
 )
 
 // billing_duration_price 的值是"分辨率档位 → 每秒单价（美元/秒）"的映射。
 // "default" 为兜底档位：请求分辨率不在档位列表时按它计费。
+//
+// billing_token_price 使用同一套分辨率档位键，值语义是"美元 / 100 万 token"，
+// 供 video_token 计费模式按输出分辨率选择每 token 单价。
 const (
 	DurationPriceDefault = "default"
 	DurationPrice720p    = "720p"
@@ -29,17 +34,20 @@ const (
 )
 
 // BillingSetting is managed by config.GlobalConfig.Register.
-// DB keys: billing_setting.billing_mode, billing_setting.billing_expr, billing_setting.billing_duration_price
+// DB keys: billing_setting.billing_mode, billing_setting.billing_expr,
+// billing_setting.billing_duration_price, billing_setting.billing_token_price
 type BillingSetting struct {
 	BillingMode          map[string]string             `json:"billing_mode"`
 	BillingExpr          map[string]string             `json:"billing_expr"`
 	BillingDurationPrice map[string]map[string]float64 `json:"billing_duration_price"`
+	BillingTokenPrice    map[string]map[string]float64 `json:"billing_token_price"`
 }
 
 var billingSetting = BillingSetting{
 	BillingMode:          make(map[string]string),
 	BillingExpr:          make(map[string]string),
 	BillingDurationPrice: make(map[string]map[string]float64),
+	BillingTokenPrice:    make(map[string]map[string]float64),
 }
 
 func init() {
@@ -164,8 +172,69 @@ func GetBillingDurationPriceCopy() map[string]map[string]float64 {
 	return out
 }
 
+// GetBillingTokenPrices 返回模型在视频按 token 计费模式下的
+// "分辨率档位 → 每百万 token 单价（美元）"映射。
+// 返回的是拷贝，调用方不应修改。
+func GetBillingTokenPrices(model string) map[string]float64 {
+	prices := billingSetting.BillingTokenPrice[model]
+	if len(prices) == 0 {
+		return nil
+	}
+	out := make(map[string]float64, len(prices))
+	for k, v := range prices {
+		out[k] = v
+	}
+	return out
+}
+
+// GetBillingTokenPrice 解析模型在指定分辨率下的每百万 token 单价（美元）。
+// 解析优先级：精确档位 > default > 已配置档位中的最小值；均未配置时返回 false。
+// 第二个返回值是命中的档位键，供日志说明实际使用的是哪一档价格。
+func GetBillingTokenPrice(model, rawResolution string) (float64, string, bool) {
+	prices := GetBillingTokenPrices(model)
+	if len(prices) == 0 {
+		return 0, "", false
+	}
+	if key := NormalizeResolution(rawResolution); key != "" {
+		if price := prices[key]; price > 0 {
+			return price, key, true
+		}
+	}
+	if price := prices[DurationPriceDefault]; price > 0 {
+		return price, DurationPriceDefault, true
+	}
+	minPrice := math.MaxFloat64
+	minKey := ""
+	for key, price := range prices {
+		if price > 0 && price < minPrice {
+			minPrice = price
+			minKey = key
+		}
+	}
+	if minKey == "" {
+		return 0, "", false
+	}
+	return minPrice, minKey, true
+}
+
+func GetBillingTokenPriceCopy() map[string]map[string]float64 {
+	src := billingSetting.BillingTokenPrice
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]float64, len(src))
+	for model, prices := range src {
+		cp := make(map[string]float64, len(prices))
+		for k, v := range prices {
+			cp[k] = v
+		}
+		out[model] = cp
+	}
+	return out
+}
+
 func GetPricingSyncData(base map[string]any) map[string]any {
-	extra := make(map[string]any, 3)
+	extra := make(map[string]any, 4)
 	if modes := GetBillingModeCopy(); len(modes) > 0 {
 		extra[BillingModeField] = modes
 	}
@@ -174,6 +243,9 @@ func GetPricingSyncData(base map[string]any) map[string]any {
 	}
 	if prices := GetBillingDurationPriceCopy(); len(prices) > 0 {
 		extra[BillingDurationPriceField] = prices
+	}
+	if prices := GetBillingTokenPriceCopy(); len(prices) > 0 {
+		extra[BillingTokenPriceField] = prices
 	}
 	return lo.Assign(base, extra)
 }

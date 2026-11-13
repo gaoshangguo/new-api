@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -23,6 +24,8 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	// 支持任务仅按次计费
 	if common.StringsContains(constant.TaskPricePatches, info.OriginModelName) {
 		logContent = fmt.Sprintf("%s，按次计费", logContent)
+	} else if info.VideoBillingSpec != nil {
+		logContent = fmt.Sprintf("%s，按视频 token 计费（估算 %d tokens）", logContent, info.VideoBillingSpec.EstimatedTokens)
 	} else {
 		if otherRatios := info.PriceData.OtherRatios(); len(otherRatios) > 0 {
 			var contents []string
@@ -42,6 +45,14 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	other["model_price"] = info.PriceData.ModelPrice
 	if info.PriceData.ModelRatio > 0 {
 		other["model_ratio"] = info.PriceData.ModelRatio
+	}
+	// 视频 token 计费：记录档位、估算 token 与冻结单价，便于对账。
+	if spec := info.VideoBillingSpec; spec != nil {
+		other["billing_mode"] = billing_setting.BillingModeVideoToken
+		other["resolution"] = spec.Resolution
+		other["video_tokens"] = spec.EstimatedTokens
+		other["token_price"] = spec.TokenPrice
+		other["token_source"] = "estimate"
 	}
 	other["group_ratio"] = info.PriceData.GroupRatioInfo.GroupRatio
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
@@ -143,6 +154,19 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 			for k, v := range priceData.OtherRatios() {
 				other[k] = v
 			}
+		}
+		// 视频 token 计费的规格与冻结单价（OtherRatios 为空，不会与档位字段冲突）。
+		if bc.BillingMode != "" {
+			other["billing_mode"] = bc.BillingMode
+		}
+		if bc.Resolution != "" {
+			other["resolution"] = bc.Resolution
+		}
+		if bc.TokenPrice > 0 {
+			other["token_price"] = bc.TokenPrice
+		}
+		if bc.EstimatedTokens > 0 {
+			other["video_tokens"] = bc.EstimatedTokens
 		}
 	}
 	props := task.Properties
@@ -385,5 +409,38 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
 
 	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f（不含时长倍率）", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
+	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
+}
+
+// RecalculateTaskQuotaByVideoTokens 按视频 token 实际用量重算任务额度（异步差额结算）。
+//
+// 结算 token 优先取上游返回的 total_tokens；上游未返回时退回提交时的估算值，
+// 此时额度与预扣一致、不产生差额。单价与分组倍率都使用提交时冻结的值，
+// 保证改价或改分组不影响在途任务。
+func RecalculateTaskQuotaByVideoTokens(ctx context.Context, task *model.Task, totalTokens int) {
+	bc := task.PrivateData.BillingContext
+	if bc == nil || bc.BillingMode != billing_setting.BillingModeVideoToken {
+		return
+	}
+
+	tokenSource := "upstream"
+	tokens := int64(totalTokens)
+	if tokens <= 0 {
+		tokenSource = "estimate"
+		tokens = bc.EstimatedTokens
+	}
+	if tokens <= 0 || bc.TokenPrice <= 0 {
+		logger.LogWarn(ctx, fmt.Sprintf("任务 %s 视频 token 结算缺少 token 数或单价，保持预扣额度", task.TaskID))
+		return
+	}
+
+	// 金额 = token 数 / 100 万 × 单价（美元/百万 token），再按 QuotaPerUnit 换算成额度。
+	actualQuota, clamp := common.QuotaRoundChecked(float64(tokens) / 1_000_000 * bc.TokenPrice * common.QuotaPerUnit * bc.GroupRatio)
+	if actualQuota <= 0 {
+		logger.LogWarn(ctx, fmt.Sprintf("任务 %s 视频 token 结算额度为 0，保持预扣额度", task.TaskID))
+		return
+	}
+
+	reason := fmt.Sprintf("视频token结算：tokens=%d(%s), tokenPrice=%.6f/M, resolution=%s, groupRatio=%.2f", tokens, tokenSource, bc.TokenPrice, bc.Resolution, bc.GroupRatio)
 	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
 }
