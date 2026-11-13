@@ -176,9 +176,15 @@ func TestGetModelAliasesByTargetGroupsActiveAliases(t *testing.T) {
 	byTarget := GetModelAliasesByTarget()
 	aliases, ok := byTarget["gpt-4o"]
 	require.True(t, ok)
-	assert.ElementsMatch(t, []string{"fast", "turbo"}, aliases)
+	// 别名按名称排序，保证对外展示稳定。
+	assert.Equal(t, []string{"fast", "turbo"}, aliases)
 	// Unrelated target has no aliases.
 	require.NotContains(t, byTarget, "gpt-5")
+
+	entries := GetActiveAliasEntriesByTarget()["gpt-4o"]
+	require.Len(t, entries, 2)
+	assert.Equal(t, "fast", entries[0].AliasName)
+	assert.Equal(t, "turbo", entries[1].AliasName)
 }
 
 func TestCreateModelAliasDuplicateRejected(t *testing.T) {
@@ -186,6 +192,51 @@ func TestCreateModelAliasDuplicateRejected(t *testing.T) {
 
 	_, err := CreateModelAlias(ModelAliasCreateParams{AliasName: "dup-alias", ModelName: "gpt-4o"})
 	require.NoError(t, err)
+	// Same alias name cannot point to a second target.
 	_, err = CreateModelAlias(ModelAliasCreateParams{AliasName: "dup-alias", ModelName: "gpt-4.1"})
 	require.Error(t, err)
+}
+
+func TestGetUsableAliasEntriesByTargetFiltersByChannelRestriction(t *testing.T) {
+	setupModelAliasTest(t)
+
+	const group = "alias-usable-group"
+	const target = "alias-usable-model"
+	t.Cleanup(func() {
+		DB.Where("model = ? and channel_id in ?", target, []int{901, 902}).Delete(&Ability{})
+	})
+
+	_, err := CreateModelAlias(ModelAliasCreateParams{AliasName: "zz-free-alias", ModelName: target})
+	require.NoError(t, err)
+	_, err = CreateModelAlias(ModelAliasCreateParams{AliasName: "zz-pinned-alias", ModelName: target, ChannelIds: "[902]"})
+	require.NoError(t, err)
+	require.NoError(t, DB.Create(&Ability{Group: group, Model: target, ChannelId: 901, Enabled: true}).Error)
+
+	// 受限渠道 902 未启用：只保留不限渠道的别名。
+	usable := GetUsableAliasEntriesByTarget([]string{group})[target]
+	require.Len(t, usable, 1)
+	assert.Equal(t, "zz-free-alias", usable[0].AliasName)
+
+	require.NoError(t, DB.Create(&Ability{Group: group, Model: target, ChannelId: 902, Enabled: true}).Error)
+	usable = GetUsableAliasEntriesByTarget([]string{group})[target]
+	require.Len(t, usable, 2)
+	assert.Equal(t, "zz-free-alias", usable[0].AliasName)
+	assert.Equal(t, "zz-pinned-alias", usable[1].AliasName)
+
+	// 分组不匹配时，受限别名不可用（不限渠道的别名仍然可用）。
+	usable = GetUsableAliasEntriesByTarget([]string{"alias-other-group"})[target]
+	require.Len(t, usable, 1)
+	assert.Equal(t, "zz-free-alias", usable[0].AliasName)
+}
+
+func TestModelLimitNamesNormalizeAndDisplay(t *testing.T) {
+	setupModelAliasTest(t)
+
+	_, err := CreateModelAlias(ModelAliasCreateParams{AliasName: "zz-fast", ModelName: "zz-target"})
+	require.NoError(t, err)
+
+	// 保存：别名替换为真实名，去重并保留未知项。
+	assert.Equal(t, []string{"zz-target", "zz-other"}, NormalizeModelLimitNames([]string{"zz-fast", "zz-target", "zz-other"}))
+	// 展示：真实名替换为排序后的首个别名。
+	assert.Equal(t, []string{"zz-fast", "zz-other"}, ModelLimitDisplayNames([]string{"zz-target", "zz-other"}))
 }

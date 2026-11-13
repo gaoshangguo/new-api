@@ -756,6 +756,7 @@ func RelayTask(c *gin.Context) {
 			OriginModelName: relayInfo.OriginModelName,
 			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
 			PriceVersionId:  relayInfo.PriceData.PriceVersionId,
+			AliasName:       relayInfo.AliasName,
 		}
 		// 视频 token 计费：冻结提交时的分辨率档位、单价与 token 估算，
 		// 轮询结算不再读取可能已变更的配置，也不会被按次计费短路。

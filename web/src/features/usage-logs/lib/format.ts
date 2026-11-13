@@ -231,14 +231,27 @@ export function getResponseTimeColor(
 }
 
 /**
- * Format model name with mapping indicator
+ * Format model name with mapping indicator.
+ *
+ * When `preferAlias` is true (non-admin log views), the public alias recorded on
+ * the log is shown instead of the internal target model name, and the upstream
+ * mapping detail is hidden to avoid leaking the real model.
  */
-export function formatModelName(log: UsageLog): {
+export function formatModelName(
+  log: UsageLog,
+  preferAlias = false
+): {
   name: string
   isMapped: boolean
   actualModel?: string
 } {
   const other = parseLogOther(log.other)
+  if (preferAlias && other?.alias_name) {
+    return {
+      name: other.alias_name,
+      isMapped: false,
+    }
+  }
   const isMapped = !!(
     other?.is_model_mapped &&
     other?.upstream_model_name &&

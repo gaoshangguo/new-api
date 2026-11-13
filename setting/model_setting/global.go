@@ -36,7 +36,16 @@ type GlobalSettings struct {
 	PassThroughRequestEnabled        bool                             `json:"pass_through_request_enabled"`
 	ThinkingModelBlacklist           []string                         `json:"thinking_model_blacklist"`
 	ChatCompletionsToResponsesPolicy ChatCompletionsToResponsesPolicy `json:"chat_completions_to_responses_policy"`
+	// ModelListAliasMode 控制对外模型名：alias（默认）时，有 active 别名的模型
+	// 只暴露别名，其它模型保持真实名；real 时保持真实名 + aliases 数组的旧行为。
+	ModelListAliasMode string `json:"model_list_alias_mode"`
 }
+
+// 模型对外名称策略。
+const (
+	ModelListAliasModeReal  = "real"
+	ModelListAliasModeAlias = "alias"
+)
 
 // 默认配置
 var defaultOpenaiSettings = GlobalSettings{
@@ -49,6 +58,7 @@ var defaultOpenaiSettings = GlobalSettings{
 		Enabled:     false,
 		AllChannels: true,
 	},
+	ModelListAliasMode: ModelListAliasModeAlias,
 }
 
 // 全局实例
@@ -61,6 +71,12 @@ func init() {
 
 func GetGlobalSettings() *GlobalSettings {
 	return &globalSettings
+}
+
+// ShouldExposeModelAliases 报告对外模型名是否使用别名替换真实模型名。
+// 默认（含未配置/非法值）按 alias 处理，只有显式配置 real 才关闭。
+func ShouldExposeModelAliases() bool {
+	return strings.TrimSpace(globalSettings.ModelListAliasMode) != ModelListAliasModeReal
 }
 
 // ShouldPreserveThinkingSuffix 判断模型是否配置为保留 thinking/-nothinking/-low/-high/-medium 后缀

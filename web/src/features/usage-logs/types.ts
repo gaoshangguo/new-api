@@ -196,6 +196,10 @@ export interface LogOtherData {
   expr_b64?: string
   matched_tier?: string
   request_rules?: RequestRuleTrace[]
+  // Model alias used by the client (P0-10). Admin views may show the real model
+  // name from `model_name`; user views display this alias instead.
+  alias_name?: string
+  alias_version?: number
   // Video token billing fields, set by backend when billing_mode === 'video_token'.
   // resolution is the normalized tier, token_price is USD per 1M tokens and
   // token_source is either "upstream" or "estimate".

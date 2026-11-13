@@ -133,6 +133,7 @@ type TaskBillingContext struct {
 	Resolution      string  `json:"resolution,omitempty"`
 	TokenPrice      float64 `json:"token_price,omitempty"`      // 美元/百万 token
 	EstimatedTokens int64   `json:"estimated_tokens,omitempty"` // 提交时估算的 token 数
+	AliasName       string  `json:"alias_name,omitempty"`       // 客户端使用的模型别名（用户侧日志展示）
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）

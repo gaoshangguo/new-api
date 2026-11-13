@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -138,6 +139,7 @@ func ResolveModelAlias(aliasName string) (string, ModelAliasEntry, bool, error) 
 
 // GetModelAliasesByTarget 反查别名：目标模型名 → 该目标的所有 active 别名。
 // 供模型列表/模型广场展示对外名使用；每次调用走内存缓存（TTL 过期自动刷新）。
+// 别名按名称排序，保证对外展示（如 aliases[0]）稳定。
 func GetModelAliasesByTarget() map[string][]string {
 	if modelAliasRefreshed.IsZero() || time.Since(modelAliasRefreshed) > modelAliasCacheTTL {
 		_ = LoadModelAliases()
@@ -153,7 +155,122 @@ func GetModelAliasesByTarget() map[string][]string {
 		}
 		result[target] = append(result[target], aliasName)
 	}
+	for target := range result {
+		sort.Strings(result[target])
+	}
 	return result
+}
+
+// GetActiveAliasEntriesByTarget 返回 目标模型名 → active 别名条目（按别名排序）。
+// 与 GetModelAliasesByTarget 不同，这里保留 ChannelIds 等字段，供可用性过滤使用。
+func GetActiveAliasEntriesByTarget() map[string][]ModelAliasEntry {
+	if modelAliasRefreshed.IsZero() || time.Since(modelAliasRefreshed) > modelAliasCacheTTL {
+		_ = LoadModelAliases()
+	}
+	result := make(map[string][]ModelAliasEntry)
+	for _, entry := range modelAliasCache.ReadAll() {
+		if entry.Status != ModelAliasStatusActive {
+			continue
+		}
+		target := strings.TrimSpace(entry.ModelName)
+		if target == "" || strings.TrimSpace(entry.AliasName) == "" {
+			continue
+		}
+		result[target] = append(result[target], entry)
+	}
+	for target := range result {
+		entries := result[target]
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].AliasName < entries[j].AliasName
+		})
+		result[target] = entries
+	}
+	return result
+}
+
+// GetUsableAliasEntriesByTarget 返回在给定分组下可路由的 active 别名。
+// 别名未配置 channel_ids 时视为不限渠道；配置了限制时，至少要有一个受限渠道
+// 在任一分组内对该目标模型可用，否则该别名在列表中出现也无法调用。
+func GetUsableAliasEntriesByTarget(groups []string) map[string][]ModelAliasEntry {
+	byTarget := GetActiveAliasEntriesByTarget()
+	for target, entries := range byTarget {
+		usable := make([]ModelAliasEntry, 0, len(entries))
+		for _, entry := range entries {
+			if isAliasUsableForGroups(entry, target, groups) {
+				usable = append(usable, entry)
+			}
+		}
+		if len(usable) == 0 {
+			delete(byTarget, target)
+			continue
+		}
+		byTarget[target] = usable
+	}
+	return byTarget
+}
+
+func isAliasUsableForGroups(entry ModelAliasEntry, target string, groups []string) bool {
+	channelIDs, err := entry.ModelAliasChannelIDs()
+	if err != nil {
+		return false
+	}
+	if len(channelIDs) == 0 {
+		return true
+	}
+	for _, channelID := range channelIDs {
+		if IsChannelEnabledForAnyGroupModel(groups, target, channelID) {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeModelLimitNames 把模型限制中的 active 别名替换为真实模型名。
+// 令牌模型限制以真实模型名落库，避免别名后续改指向或删除后限制失效。
+func NormalizeModelLimitNames(names []string) []string {
+	if len(names) == 0 {
+		return names
+	}
+	out := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		resolved := name
+		if entry, ok := GetModelAliasEntry(name); ok && entry.Status == ModelAliasStatusActive {
+			resolved = entry.ModelName
+		}
+		if _, exists := seen[resolved]; exists {
+			continue
+		}
+		seen[resolved] = struct{}{}
+		out = append(out, resolved)
+	}
+	return out
+}
+
+// ModelLimitDisplayNames 把模型限制中的真实模型名替换为排序后的首个别名，
+// 供令牌详情/用量接口展示；没有别名的模型保持原名。
+func ModelLimitDisplayNames(names []string) []string {
+	if len(names) == 0 {
+		return names
+	}
+	byTarget := GetModelAliasesByTarget()
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if aliases := byTarget[name]; len(aliases) > 0 {
+			out = append(out, aliases[0])
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 // ModelAliasChannelIDs 解析别名可选的渠道限制（JSON 数组），空则不限。

@@ -96,12 +96,9 @@ export function usePricingColumns(
               <span className='truncate font-mono text-sm font-medium'>
                 {displayName}
               </span>
-              {aliases.length > 0 && (
+              {aliases.length > 1 && (
                 <span className='text-muted-foreground/60 truncate font-mono text-[11px]'>
-                  {model.model_name}
-                  {aliases.length > 1
-                    ? `, ${aliases.slice(1, 3).join(', ')}`
-                    : ''}
+                  {aliases.slice(1, 3).join(', ')}
                   {aliases.length > 3 ? ` +${aliases.length - 3}` : ''}
                 </span>
               )}

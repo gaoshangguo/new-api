@@ -54,6 +54,10 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["token_price"] = spec.TokenPrice
 		other["token_source"] = "estimate"
 	}
+	// 记录客户端使用的别名：用户侧日志展示别名而不是真实目标模型名。
+	if info.AliasName != "" {
+		other["alias_name"] = info.AliasName
+	}
 	other["group_ratio"] = info.PriceData.GroupRatioInfo.GroupRatio
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
 		other["user_group_ratio"] = info.PriceData.GroupRatioInfo.GroupSpecialRatio
@@ -158,6 +162,9 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 		// 视频 token 计费的规格与冻结单价（OtherRatios 为空，不会与档位字段冲突）。
 		if bc.BillingMode != "" {
 			other["billing_mode"] = bc.BillingMode
+		}
+		if bc.AliasName != "" {
+			other["alias_name"] = bc.AliasName
 		}
 		if bc.Resolution != "" {
 			other["resolution"] = bc.Resolution

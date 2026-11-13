@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -392,9 +393,32 @@ func TestListModelsUsesAdvancedCustomEndpointTypesFromPricingCache(t *testing.T)
 	}, payload.Data[0].SupportedEndpointTypes)
 }
 
-func TestListModelsIncludesAliases(t *testing.T) {
+func withModelListAliasMode(t *testing.T, mode string) {
+	t.Helper()
+
+	original := model_setting.GetGlobalSettings().ModelListAliasMode
+	model_setting.GetGlobalSettings().ModelListAliasMode = mode
+	t.Cleanup(func() {
+		model_setting.GetGlobalSettings().ModelListAliasMode = original
+	})
+}
+
+// resetModelAliasCacheForTest 清空并重建当前测试库的别名缓存，
+// 避免其它用例留下的全局缓存影响断言。
+func resetModelAliasCacheForTest(t *testing.T, db *gorm.DB) {
+	t.Helper()
+
+	require.NoError(t, db.AutoMigrate(&model.ModelAlias{}))
+	require.NoError(t, db.Session(&gorm.Session{AllowGlobalUpdate: true, SkipHooks: true}).Delete(&model.ModelAlias{}).Error)
+	require.NoError(t, model.LoadModelAliases())
+}
+
+func setupAliasedModelListTest(t *testing.T) *gorm.DB {
+	t.Helper()
+
 	withSelfUseModeEnabled(t)
 	db := setupModelListControllerTestDB(t)
+	resetModelAliasCacheForTest(t, db)
 	require.NoError(t, db.Create(&model.User{
 		Id:       1004,
 		Username: "model-list-alias-user",
@@ -402,15 +426,110 @@ func TestListModelsIncludesAliases(t *testing.T) {
 		Group:    "default",
 		Status:   common.UserStatusEnabled,
 	}).Error)
-	require.NoError(t, db.Create(&[]model.Ability{
-		{Group: "default", Model: "zz-aliased-model", ChannelId: 1, Enabled: true},
+	require.NoError(t, db.Create(&model.Ability{
+		Group: "default", Model: "zz-aliased-model", ChannelId: 1, Enabled: true,
 	}).Error)
-	require.NoError(t, db.AutoMigrate(&model.ModelAlias{}))
-	require.NoError(t, db.Session(&gorm.Session{AllowGlobalUpdate: true, SkipHooks: true}).Delete(&model.ModelAlias{}).Error)
+	return db
+}
+
+func listModelsForTest(t *testing.T, userId int) listModelsResponse {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	ctx.Set("id", userId)
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+	return decodeListModelsPayload(t, recorder)
+}
+
+func TestListModelsExposesAliasesInsteadOfRealNames(t *testing.T) {
+	db := setupAliasedModelListTest(t)
+	require.NoError(t, db.Create(&[]model.ModelAlias{
+		{AliasName: "zz-aliased-turbo", ModelName: "zz-aliased-model", Status: model.ModelAliasStatusActive, Version: 1},
+		{AliasName: "zz-aliased-fast", ModelName: "zz-aliased-model", Status: model.ModelAliasStatusActive, Version: 1},
+	}).Error)
 	require.NoError(t, model.LoadModelAliases())
+
+	payload := listModelsForTest(t, 1004)
+	require.Len(t, payload.Data, 2)
+	// 多别名按名称排序，每个别名一条；真实模型名不再出现。
+	require.Equal(t, "zz-aliased-fast", payload.Data[0].Id)
+	require.Equal(t, "zz-aliased-turbo", payload.Data[1].Id)
+	for _, item := range payload.Data {
+		require.NotEqual(t, "zz-aliased-model", item.Id)
+		require.Empty(t, item.Aliases)
+	}
+
+	// 无别名模型保持真实名，且不受别名展开影响。
+	require.NoError(t, db.Create(&model.Ability{
+		Group: "default", Model: "zz-plain-model", ChannelId: 2, Enabled: true,
+	}).Error)
+	payload = listModelsForTest(t, 1004)
+	require.Len(t, payload.Data, 3)
+	ids := make([]string, 0, len(payload.Data))
+	for _, item := range payload.Data {
+		ids = append(ids, item.Id)
+	}
+	require.Equal(t, []string{"zz-aliased-fast", "zz-aliased-turbo", "zz-plain-model"}, ids)
+}
+
+func TestListModelsKeepsRealNamesWhenAliasModeDisabled(t *testing.T) {
+	withModelListAliasMode(t, model_setting.ModelListAliasModeReal)
+	db := setupAliasedModelListTest(t)
 	require.NoError(t, db.Create(&[]model.ModelAlias{
 		{AliasName: "zz-aliased-fast", ModelName: "zz-aliased-model", Status: model.ModelAliasStatusActive, Version: 1},
 		{AliasName: "zz-aliased-turbo", ModelName: "zz-aliased-model", Status: model.ModelAliasStatusActive, Version: 1},
+	}).Error)
+	require.NoError(t, model.LoadModelAliases())
+
+	payload := listModelsForTest(t, 1004)
+	require.Len(t, payload.Data, 1)
+	require.Equal(t, "zz-aliased-model", payload.Data[0].Id)
+	require.Equal(t, []string{"zz-aliased-fast", "zz-aliased-turbo"}, payload.Data[0].Aliases)
+}
+
+func TestListModelsExcludesDeprecatedAliases(t *testing.T) {
+	db := setupAliasedModelListTest(t)
+	require.NoError(t, db.Create(&[]model.ModelAlias{
+		{AliasName: "zz-aliased-fast", ModelName: "zz-aliased-model", Status: model.ModelAliasStatusActive, Version: 1},
+		{AliasName: "zz-aliased-old", ModelName: "zz-aliased-model", Status: model.ModelAliasStatusDeprecated, Replacement: "zz-aliased-model", Version: 1},
+	}).Error)
+	require.NoError(t, model.LoadModelAliases())
+
+	payload := listModelsForTest(t, 1004)
+	require.Len(t, payload.Data, 1)
+	require.Equal(t, "zz-aliased-fast", payload.Data[0].Id)
+}
+
+func TestListModelsHidesAliasWithUnavailableChannelRestriction(t *testing.T) {
+	db := setupAliasedModelListTest(t)
+	require.NoError(t, db.Create(&model.ModelAlias{
+		AliasName:  "zz-aliased-pinned",
+		ModelName:  "zz-aliased-model",
+		ChannelIds: "[9]",
+		Status:     model.ModelAliasStatusActive,
+		Version:    1,
+	}).Error)
+	require.NoError(t, model.LoadModelAliases())
+
+	// 受限渠道 9 未启用：别名不可用，真实名也不能回退展示。
+	payload := listModelsForTest(t, 1004)
+	require.Empty(t, payload.Data)
+
+	// 受限渠道对该分组可用后，别名重新出现在列表里。
+	require.NoError(t, db.Create(&model.Ability{
+		Group: "default", Model: "zz-aliased-model", ChannelId: 9, Enabled: true,
+	}).Error)
+	payload = listModelsForTest(t, 1004)
+	require.Len(t, payload.Data, 1)
+	require.Equal(t, "zz-aliased-pinned", payload.Data[0].Id)
+}
+
+func TestListModelsTokenLimitAcceptsAliasName(t *testing.T) {
+	db := setupAliasedModelListTest(t)
+	require.NoError(t, db.Create(&model.ModelAlias{
+		AliasName: "zz-aliased-fast", ModelName: "zz-aliased-model", Status: model.ModelAliasStatusActive, Version: 1,
 	}).Error)
 	require.NoError(t, model.LoadModelAliases())
 
@@ -418,30 +537,68 @@ func TestListModelsIncludesAliases(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	ctx.Set("id", 1004)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
+		"zz-aliased-fast": true,
+	})
 
 	ListModels(ctx, constant.ChannelTypeOpenAI)
 
 	payload := decodeListModelsPayload(t, recorder)
 	require.Len(t, payload.Data, 1)
-	require.Equal(t, "zz-aliased-model", payload.Data[0].Id)
-	assert.ElementsMatch(t, []string{"zz-aliased-fast", "zz-aliased-turbo"}, payload.Data[0].Aliases)
+	require.Equal(t, "zz-aliased-fast", payload.Data[0].Id)
+}
 
-	// Non-aliased models keep an empty aliases field.
-	require.NoError(t, db.Create(&model.Ability{
-		Group: "default", Model: "zz-plain-model", ChannelId: 2, Enabled: true,
+func TestRetrieveModelResolvesAliasAndHidesRealName(t *testing.T) {
+	db := setupAliasedModelListTest(t)
+	require.NoError(t, db.Create(&model.ModelAlias{
+		AliasName: "zz-aliased-fast", ModelName: "zz-aliased-model", Status: model.ModelAliasStatusActive, Version: 1,
 	}).Error)
-	plainRecorder := httptest.NewRecorder()
-	plainCtx, _ := gin.CreateTestContext(plainRecorder)
-	plainCtx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
-	plainCtx.Set("id", 1004)
-	ListModels(plainCtx, constant.ChannelTypeOpenAI)
-	plainPayload := decodeListModelsPayload(t, plainRecorder)
-	require.Len(t, plainPayload.Data, 2)
-	for _, item := range plainPayload.Data {
-		if item.Id == "zz-plain-model" {
-			require.Empty(t, item.Aliases)
-		}
+	require.NoError(t, model.LoadModelAliases())
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models/zz-aliased-fast", nil)
+	ctx.Params = append(ctx.Params, gin.Param{Key: "model", Value: "zz-aliased-fast"})
+	ctx.Set("id", 1004)
+	RetrieveModel(ctx, constant.ChannelTypeOpenAI)
+	var aliasPayload dto.OpenAIModels
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &aliasPayload))
+	require.Equal(t, "zz-aliased-fast", aliasPayload.Id)
+
+	// 别名模式下通过真实名查询必须返回 model_not_found，避免反推真实模型名。
+	hiddenRecorder := httptest.NewRecorder()
+	hiddenCtx, _ := gin.CreateTestContext(hiddenRecorder)
+	hiddenCtx.Request = httptest.NewRequest(http.MethodGet, "/v1/models/zz-aliased-model", nil)
+	hiddenCtx.Params = append(hiddenCtx.Params, gin.Param{Key: "model", Value: "zz-aliased-model"})
+	hiddenCtx.Set("id", 1004)
+	RetrieveModel(hiddenCtx, constant.ChannelTypeOpenAI)
+	var hiddenPayload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
 	}
+	require.NoError(t, common.Unmarshal(hiddenRecorder.Body.Bytes(), &hiddenPayload))
+	require.Equal(t, "model_not_found", hiddenPayload.Error.Code)
+}
+
+func TestGetUserModelsExposesAliases(t *testing.T) {
+	db := setupAliasedModelListTest(t)
+	require.NoError(t, db.Create(&model.ModelAlias{
+		AliasName: "zz-aliased-fast", ModelName: "zz-aliased-model", Status: model.ModelAliasStatusActive, Version: 1,
+	}).Error)
+	require.NoError(t, model.LoadModelAliases())
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/user/models", nil)
+	ctx.Set("id", 1004)
+	GetUserModels(ctx)
+
+	var payload userModelsResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.True(t, payload.Success)
+	require.Equal(t, []string{"zz-aliased-fast"}, payload.Data)
 }
 
 func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {

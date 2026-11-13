@@ -292,23 +292,12 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         {props.model.description || t('No description available.')}
       </p>
 
-      {/* Aliases: internal model name is shown here when an alias is the title */}
-      {aliases.length > 0 && (
+      {/* Additional public aliases; the primary alias is already the title. */}
+      {aliases.length > 1 && (
         <div className='mt-2 flex flex-wrap items-center gap-1.5'>
           <span className='text-muted-foreground/70 text-[11px]'>
             {t('Aliases')}
           </span>
-          <button
-            type='button'
-            onClick={(e) => {
-              e.stopPropagation()
-              copyToClipboard(props.model.model_name || '')
-            }}
-            title={t('Copy model name')}
-            className='bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground rounded-md px-1.5 py-0.5 font-mono text-[11px] transition-colors'
-          >
-            {props.model.model_name}
-          </button>
           {aliases.slice(1, 3).map((alias) => (
             <button
               key={alias}

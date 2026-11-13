@@ -49,6 +49,7 @@ func Distribute() func(c *gin.Context) {
 		}
 		// P0-10 模型别名：在渠道选择/定价/限流之前把对外别名解析为内部模型名，
 		// 并记录原始别名供日志解释。deprecated 且无替代的别名直接拒绝。
+		requestedModelName := modelRequest.Model
 		if modelRequest.Model != "" {
 			resolved, aliasEntry, isAlias, resolveErr := model.ResolveModelAlias(modelRequest.Model)
 			if resolveErr != nil {
@@ -105,7 +106,12 @@ func Distribute() func(c *gin.Context) {
 					tokenModelLimit = map[string]bool{}
 				}
 				matchName := ratio_setting.FormatMatchingModelName(modelRequest.Model) // match gpts & thinking-*
-				if _, ok := tokenModelLimit[matchName]; !ok {
+				allowed := tokenModelLimit[matchName]
+				if !allowed && requestedModelName != "" {
+					// 历史令牌可能以别名保存模型限制（对外展示名），同时接受别名与真实名。
+					allowed = tokenModelLimit[requestedModelName]
+				}
+				if !allowed {
 					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenModelForbidden, map[string]any{"Model": modelRequest.Model}))
 					return
 				}

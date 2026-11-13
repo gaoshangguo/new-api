@@ -457,12 +457,10 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
   const aliases = normalizeCatalogItems(model.alias_names)
   const cells: React.ReactNode[] = []
 
-  if (aliases.length > 0) {
+  if (aliases.length > 1) {
     cells.push(
       <CatalogInfoCell key='aliases' label={t('Aliases')}>
-        <CatalogPillList
-          items={[model.model_name, ...aliases.slice(1)].filter(Boolean)}
-        />
+        <CatalogPillList items={aliases.slice(1).filter(Boolean)} />
       </CatalogInfoCell>
     )
   }
@@ -571,18 +569,9 @@ function ModelHeader(props: { model: PricingModel }) {
         <span className='text-muted-foreground/30'>·</span>
         <ModelBillingModeBadge model={model} />
       </div>
-      {aliases.length > 0 && (
+      {aliases.length > 1 && (
         <div className='mt-2 flex flex-wrap items-center gap-1.5'>
           <span className='text-muted-foreground text-xs'>{t('Aliases')}:</span>
-          <CopyButton
-            value={model.model_name || ''}
-            size='sm'
-            tooltip={t('Copy model name')}
-            successTooltip={t('Copied!')}
-            iconClassName='size-3'
-          >
-            <span className='font-mono'>{model.model_name}</span>
-          </CopyButton>
           {aliases.slice(1).map((alias) => (
             <CopyButton
               key={alias}
@@ -1355,7 +1344,7 @@ export function ModelDetailsDrawer(props: ModelDetailsDrawerProps) {
         )}
       >
         <SheetHeader className='sr-only'>
-          <SheetTitle>{props.model.model_name}</SheetTitle>
+          <SheetTitle>{getDisplayModelName(props.model)}</SheetTitle>
           <SheetDescription>{t('Model details')}</SheetDescription>
         </SheetHeader>
         <div className='flex-1 overflow-y-auto px-4 pt-11 pb-5 sm:px-6 sm:pt-12 sm:pb-6'>
@@ -1388,7 +1377,12 @@ export function ModelDetails() {
 
   const model = useMemo(() => {
     if (!models || !modelId) return null
-    return models.find((m) => m.model_name === modelId) || null
+    // Route id may be an alias (catalog prefers aliases); fall back to alias match.
+    return (
+      models.find((m) => m.model_name === modelId) ||
+      models.find((m) => m.alias_names?.includes(modelId)) ||
+      null
+    )
   }, [models, modelId])
 
   const handleBack = () => {

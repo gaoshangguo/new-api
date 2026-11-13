@@ -322,6 +322,9 @@ func GenerateMjOtherInfo(relayInfo *relaycommon.RelayInfo, priceData hosttypes.P
 	if priceData.PriceVersionId > 0 {
 		other["price_version_id"] = priceData.PriceVersionId
 	}
+	if relayInfo != nil && relayInfo.AliasName != "" {
+		other["alias_name"] = relayInfo.AliasName
+	}
 	appendRequestPath(nil, relayInfo, other)
 	return other
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
@@ -41,12 +42,51 @@ type tokenResponse struct {
 	AutoGroups []string `json:"auto_groups"`
 }
 
+// tokenModelLimitNames 拆分逗号分隔的模型限制，忽略空项。
+func tokenModelLimitNames(raw string) []string {
+	parts := strings.Split(raw, ",")
+	names := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			names = append(names, part)
+		}
+	}
+	return names
+}
+
+// normalizeTokenModelLimits 把模型限制中的别名归一化为真实模型名后落库，
+// 避免别名改指向或删除后限制失效。
+func normalizeTokenModelLimits(raw string) string {
+	if !model_setting.ShouldExposeModelAliases() || strings.TrimSpace(raw) == "" {
+		return raw
+	}
+	return strings.Join(model.NormalizeModelLimitNames(tokenModelLimitNames(raw)), ",")
+}
+
+// displayTokenModelLimits 把落库的真实模型名替换为对外别名后返回给前端。
+func displayTokenModelLimits(raw string) string {
+	if !model_setting.ShouldExposeModelAliases() || strings.TrimSpace(raw) == "" {
+		return raw
+	}
+	return strings.Join(model.ModelLimitDisplayNames(tokenModelLimitNames(raw)), ",")
+}
+
+func tokenModelLimitDisplayMap(raw string) map[string]bool {
+	limitsMap := make(map[string]bool)
+	for _, name := range tokenModelLimitNames(displayTokenModelLimits(raw)) {
+		limitsMap[name] = true
+	}
+	return limitsMap
+}
+
 func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
 	if token == nil {
 		return nil
 	}
 	maskedToken := *token
 	maskedToken.Key = token.GetMaskedKey()
+	maskedToken.ModelLimits = displayTokenModelLimits(token.ModelLimits)
 	autoGroups, err := token.GetAutoGroups()
 	if err != nil {
 		common.SysError(fmt.Sprintf("failed to parse auto groups for token %d: %v", token.Id, err))
@@ -254,7 +294,7 @@ func GetTokenUsage(c *gin.Context) {
 			"total_used":           token.UsedQuota,
 			"total_available":      token.RemainQuota,
 			"unlimited_quota":      token.UnlimitedQuota,
-			"model_limits":         token.GetModelLimitsMap(),
+			"model_limits":         tokenModelLimitDisplayMap(token.ModelLimits),
 			"model_limits_enabled": token.ModelLimitsEnabled,
 			"expires_at":           expiredAt,
 		},
@@ -269,6 +309,7 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	token := request.Token
+	token.ModelLimits = normalizeTokenModelLimits(token.ModelLimits)
 	if len(token.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
@@ -314,26 +355,26 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	cleanToken := model.Token{
-		UserId:             c.GetInt("id"),
-		Name:               token.Name,
-		Key:                key,
-		CreatedTime:        common.GetTimestamp(),
-		AccessedTime:       common.GetTimestamp(),
-		ExpiredTime:        token.ExpiredTime,
-		RemainQuota:        token.RemainQuota,
-		UnlimitedQuota:     token.UnlimitedQuota,
-		ModelLimitsEnabled: token.ModelLimitsEnabled,
-		ModelLimits:        token.ModelLimits,
-		AllowIps:           token.AllowIps,
-		Group:              token.Group,
-		CrossGroupRetry:    token.CrossGroupRetry,
-		AutoGroups:         token.AutoGroups,
-		DailyQuota:         token.DailyQuota,
-		MonthlyQuota:       token.MonthlyQuota,
-		ChannelLimits:      token.ChannelLimits,
+		UserId:                c.GetInt("id"),
+		Name:                  token.Name,
+		Key:                   key,
+		CreatedTime:           common.GetTimestamp(),
+		AccessedTime:          common.GetTimestamp(),
+		ExpiredTime:           token.ExpiredTime,
+		RemainQuota:           token.RemainQuota,
+		UnlimitedQuota:        token.UnlimitedQuota,
+		ModelLimitsEnabled:    token.ModelLimitsEnabled,
+		ModelLimits:           token.ModelLimits,
+		AllowIps:              token.AllowIps,
+		Group:                 token.Group,
+		CrossGroupRetry:       token.CrossGroupRetry,
+		AutoGroups:            token.AutoGroups,
+		DailyQuota:            token.DailyQuota,
+		MonthlyQuota:          token.MonthlyQuota,
+		ChannelLimits:         token.ChannelLimits,
 		MaxConcurrentRequests: token.MaxConcurrentRequests,
-		RateLimitRPM:       token.RateLimitRPM,
-		RateLimitTPM:       token.RateLimitTPM,
+		RateLimitRPM:          token.RateLimitRPM,
+		RateLimitTPM:          token.RateLimitTPM,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -409,7 +450,7 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.RemainQuota = token.RemainQuota
 		cleanToken.UnlimitedQuota = token.UnlimitedQuota
 		cleanToken.ModelLimitsEnabled = token.ModelLimitsEnabled
-		cleanToken.ModelLimits = token.ModelLimits
+		cleanToken.ModelLimits = normalizeTokenModelLimits(token.ModelLimits)
 		cleanToken.AllowIps = token.AllowIps
 		cleanToken.Group = token.Group
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
